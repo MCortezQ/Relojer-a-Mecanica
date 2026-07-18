@@ -11,6 +11,7 @@ class MechanicalSystem {
         this.draggedShaft = null;
         this.connectionMode = false;
         this.connectionSourceGear = null;
+        this.hands = [];
         // [NUEVO] Estado para conexión de poleas
         this.pulleyConnectionMode = false;
         this.connectionSourcePulley = null;
@@ -34,8 +35,6 @@ class MechanicalSystem {
         this.pendingEscapeGear = null; // Guarda el engranaje de escape temporalmente
         // ---> FIN MODO SELECCIÓN PÉNDULO <---
       
-        this.minuteHandShaft = null; // ¿Donde está la aguja de miutos?
-        this.hourHandShaft = null;
         this.totalTicks = 0;
     }
   
@@ -120,6 +119,37 @@ class MechanicalSystem {
         }
         return null;
     }
+
+//************************
+    // ---> INICIO GESTIÓN DE AGUJAS (HANDS) <---
+    createHand(type = 'custom') {
+        let hand = new Hand(type);
+        this.hands.push(hand);
+        return hand;
+    }
+
+    mountHand(hand, shaft) {
+        if (!shaft) {
+            console.warn("Montaje fallido: Se requiere un eje válido.");
+            return;
+        }
+        shaft.addComponent(hand);
+        hand.shaft = shaft; // <--- FORZAMOS que la aguja sepa en qué eje está
+    }
+
+    removeHand(hand) {
+        // Desmontar del eje si está montada
+        if (hand.shaft) {
+            let idx = hand.shaft.components.indexOf(hand);
+            if (idx !== -1) hand.shaft.components.splice(idx, 1);
+            hand.shaft = null;
+        }
+        // Eliminar del array global del sistema
+        let globalIdx = this.hands.indexOf(hand);
+        if (globalIdx !== -1) this.hands.splice(globalIdx, 1);
+    }
+    // ---> FIN GESTIÓN DE AGUJAS (HANDS) <---
+  
 
 //************************
     createPendulum(shaft, length, amplitude, frequency) {
@@ -351,6 +381,24 @@ class MechanicalSystem {
                 shaft.components[0]
             );
         }
+
+        // ---> INICIO LIMPIEZA DE PÉNDULOS HUÉRFANOS <---
+        // Si eliminamos un eje que tiene un péndulo, el péndulo debe morir también
+        for (let i = this.pendulums.length - 1; i >= 0; i--) {
+            if (this.pendulums[i].shaft === shaft) {
+                // Opcional: Si el péndulo estaba conectado a un escape, limpiamos la referencia
+                for (let esc of this.escapements) {
+                    if (esc.pendulum === this.pendulums[i]) {
+                        // Aquí deberías llamar a la función que ya tienes para destruir escapes
+                        // Normalmente se llama removeEscapement(esc) o similar
+                        this.removeEscapement(esc); 
+                    }
+                }
+                this.pendulums.splice(i, 1); // Eliminamos el péndulo del array global
+            }
+        }
+        // ---> FIN LIMPIEZA DE PÉNDULOS HUÉRFANOS <---
+      
         let index =
             this.shafts.indexOf(shaft);
         if(index>=0){
@@ -478,7 +526,23 @@ class MechanicalSystem {
         return null;
     }
 
-//************************    
+//************************ 
+
+    // ---> INICIO BÚSQUEDA COAXIAL <---
+    // Devuelve un ARRAY con todos los ejes que estén dentro del radio de clic
+    findShaftsAt(x, y, radius = 12) {
+        let found = [];
+        for (let s of this.shafts) {
+            if (dist(x, y, s.x, s.y) < radius) {
+                found.push(s);
+            }
+        }
+        return found;
+    }
+    // ---> FIN BÚSQUEDA COAXIAL <---
+
+//**************************  
+  
     findGuideAt(x, y){
         const PICK_RADIUS = 15; // Un poco más generoso para facilitar la selección
         for(let guide of this.guides){
@@ -1191,7 +1255,7 @@ class MechanicalSystem {
         this.removeEscapement(node);
 
         // ---> INICIO LIMPIEZA DE ESFERA FANTASMA <---
-        if (node === this.minuteHandShaft) this.minuteHandShaft = null;
+ //       if (node === this.minuteHandShaft) this.minuteHandShaft = null;
         if (node === this.hourHandShaft) this.hourHandShaft = null;
         // ---> FIN LIMPIEZA DE ESFERA FANTASMA <---
 
@@ -1233,7 +1297,7 @@ class MechanicalSystem {
         let minuteGear = this.addMeshedGear(intermediatePinion, 300, escapeGear.module, "Minuto");
         
         // Guardamos la referencia de este eje para dibujar la aguja azul
-        this.minuteHandShaft = minuteGear.shaft;
+        //this.minuteHandShaft = minuteGear.shaft;
         
         return minuteGear;
     }
@@ -1305,6 +1369,7 @@ class MechanicalSystem {
             meshes: [],
             pendulums: [],
             escapements: [],
+            hands: [],
             totalTicks: this.totalTicks
         };
 
@@ -1332,6 +1397,18 @@ class MechanicalSystem {
         // 5. Guardar escapes
         for (let e of this.escapements) {
             data.escapements.push({ pendulumId: e.pendulum.id, escapeGearId: e.escapeGear.id });
+        }
+          // 6. Guardar agujas (Hands)
+        for (let h of this.hands) {
+            if (!h.shaft) continue; // No guardar agujas flotantes
+            data.hands.push({
+                shaftId: h.shaft.id,
+                type: h.type,
+                color: h.color,
+                strokeW: h.strokeW,
+                length: h.length,
+                tailLength: h.tailLength
+            });
         }
 
         return JSON.stringify(data, null, 2);
@@ -1393,16 +1470,23 @@ class MechanicalSystem {
             if (p && g) this.createEscapement(p.shaft, g);
         }
 
+              // 6. Reconstruir Agujas
+        if (data.hands) {
+            for (let hData of data.hands) {
+                let h = new Hand(hData.type);
+                // Restaurar propiedades visuales guardadas
+                h.color = hData.color;
+                h.strokeW = hData.strokeW;
+                h.length = hData.length;
+                h.tailLength = hData.tailLength;
+                
+                this.hands.push(h); // Añadir al sistema
+                this.mountHand(h, shaftMap[hData.shaftId]); // Montar en su eje correspondiente
+            }
+        }
+      
         // Restaurar el tiempo
         this.totalTicks = data.totalTicks || 0;
-        
-        // ---> INICIO RESTAURACIÓN DE ESFERA <---
-        // Buscar los engranajes específicos por su nombre y reconectar las agujas
-        for (let g of this.gears) {
-            if (g.name === "Minuto") this.minuteHandShaft = g.shaft;
-            if (g.name === "Hora") this.hourHandShaft = g.shaft;
-        }
-        // ---> FIN RESTAURACIÓN DE ESFERA <---
 
         this.afterGeometryChange();
     }

@@ -87,7 +87,7 @@ function draw(){
     // Cortar el deltaTime para evitar explosiones matemáticas
     let safeDt = min(deltaTime/1000, MAX_DT); 
 
-  system.update(safeDt);
+  system.update(deltaTime/1000);
     renderer.draw();
 }
 
@@ -150,32 +150,14 @@ function canvasMousePressed(){
         return;
     }
   
-    // ---> INICIO LÓGICA COAXIAL <---
-    let selectedNode = null;
-    let coaxialShafts = system.findShaftsAt(worldMouse.x, worldMouse.y); 
-
-    if (coaxialShafts.length > 1) {
-        // Si el usuario ya había elegido uno de estos ejes previamente, 
-        // no mostramos el menú, simplemente lo tratamos como el seleccionado para permitir arrastrarlo.
-        if (panel.selectedNode && coaxialShafts.includes(panel.selectedNode)) {
-            selectedNode = panel.selectedNode;
-        } else {
-            // Si es un clic fresco en un punto con múltiples ejes, mostramos el menú
-            panel.showCoaxialSelector(coaxialShafts);
-            return; 
-        }
-    } else if (coaxialShafts.length === 1) {
-        // Caso normal: Solo hay un eje
-        selectedNode = coaxialShafts[0];
-    } else {
-        // Caso vacío: No hay ejes, buscamos guías lineales
-        selectedNode = system.findGuideAt(worldMouse.x, worldMouse.y);
+    let selectedNode = system.findShaftAt(worldMouse.x, worldMouse.y); // <--- CAMBIO
+    if(!selectedNode) {
+        selectedNode = system.findGuideAt(worldMouse.x, worldMouse.y); // <--- CAMBIO
     }
-    // ---> FIN LÓGICA COAXIAL <---
+
     panel.clearActiveStyles();
     panel.setSelection(selectedNode);
-  
-  if(selectedNode){
+    if(selectedNode){
         if(!system.isAttachedToCarrier(selectedNode)){
             system.beginDrag(selectedNode);
         }

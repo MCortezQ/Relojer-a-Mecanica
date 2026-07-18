@@ -3,8 +3,6 @@ class PropertyPanel {
         this.system = system;
         this.selectedNode = null; 
         this.selectedComponent = null;
-        this.coaxialOptions = [];
-        this.audioPanelOpen = false;
         
         this.btnConnectGear = null;
         this.btnConnectPulley = null;
@@ -45,55 +43,6 @@ class PropertyPanel {
 
         this.update();
     }
-
-      // ---> INICIO LÓGICA COAXIAL <---
-    showCoaxialSelector(shafts) {
-        this.clearActiveStyles(); // Limpiamos modos de conexión previos
-        this.coaxialOptions = shafts;
-        this.selectedNode = null; // Deseleccionamos lo que haya
-        this.update();
-    }
-
-    // ---> INICIO BLOQUE VISUAL COAXIAL <---
-    drawCoaxialUI() {
-        this.addSectionTitle("📍 Punto Coaxial (Selecciona)");
-        let row = createDiv();
-        row.parent(this.editor);
-        row.style("display", "flex");
-        row.style("gap", "4px");
-        row.style("flex-wrap", "wrap");
-        row.style("margin-bottom", "6px");
-
-        for (let shaft of this.coaxialOptions) {
-            // Usa el nombre del eje si lo tiene, si no, usa su ID
-            let label = shaft.name || ("Eje " + shaft.id);
-            let velInfo = nf(shaft.omega, 1, 1);
-            
-            let btn = createButton(`🔵 ${label} (ω:${velInfo})`);
-            btn.parent(row);
-            this.styleBtn(btn, "#34495e");
-            
-            // Al hacer clic, limpiamos el selector y seleccionamos ESTE eje
-            btn.mousePressed(() => {
-                this.coaxialOptions = []; 
-                this.setSelection(shaft); 
-            });
-        }
-        
-        // Botón por si el usuario se arrepiente
-        let btnCancel = createButton("❌ Cancelar");
-        btnCancel.parent(row);
-        this.styleBtn(btnCancel, "#c0392b");
-        btnCancel.mousePressed(() => {
-            this.coaxialOptions = [];
-            this.update();
-        });
-
-        this.drawPersistenceUI(); 
-        this.drawAudioUI();
-    }
-    // ---> FIN BLOQUE VISUAL COAXIAL <---
-  
 
     update() {
         this.updateNodeInfo();
@@ -175,13 +124,7 @@ class PropertyPanel {
 
     updateEditor() {
         this.editor.html("");
-
-        // Interceptamos el flujo normal si hay ejes coaxiales esperando selección
-        if (this.coaxialOptions.length > 0) {
-            this.drawCoaxialUI();
-            return;
-        }
-      
+        
         // ==========================================
         // ESTADO 1: Lienzo vacío
         // ==========================================
@@ -222,35 +165,7 @@ class PropertyPanel {
         // ==========================================
         // ESTADO 3: Hay un nodo seleccionado (Eje o Guía)
         // ==========================================
-
-        // ---> INICIO NOMBRE DEL EJE <---
-        if (!(this.selectedNode instanceof LinearGuide)) {
-            let nameRow = createDiv();
-            nameRow.parent(this.editor);
-            nameRow.style("display", "flex");
-            nameRow.style("gap", "4px");
-            nameRow.style("align-items", "center");
-            nameRow.style("margin-bottom", "6px");
-
-            let lblName = createElement("span", "Nombre:");
-            lblName.parent(nameRow);
-            lblName.style("font-size", "9px");
-            lblName.style("width", "40px");
-
-            // Si el eje no tiene nombre, le ponemos un defecto basado en su ID
-            let currentName = this.selectedNode.name || ("Eje " + this.selectedNode.id);
-            let shaftNameIn = createInput(currentName);
-            shaftNameIn.parent(nameRow);
-            shaftNameIn.style("width", "120px");
-            shaftNameIn.style("font-size", "10px");
-            shaftNameIn.style("padding", "5px");
-            
-            shaftNameIn.input(() => {
-                this.selectedNode.name = shaftNameIn.value();
-            });
-        }
-        // ---> FIN NOMBRE DEL EJE <---
-      
+        
         // --- SECCIÓN CREACIÓN (Compacta) ---
         this.addSectionTitle("➕ Añadir / Crear");
         let creationRow = createDiv();
@@ -262,17 +177,10 @@ class PropertyPanel {
         if (this.selectedNode instanceof LinearGuide) {
             let b = createButton("📏 Cremallera"); b.parent(creationRow); this.styleBtn(b, "#f39c12");
             b.mousePressed(() => { let r = this.system.createRack(10, 5); this.system.mountRack(r, this.selectedNode); this.selectedComponent = r; this.update(); });
-        } else  {
+        } else {
             let selectType = createSelect();
             selectType.parent(creationRow);
-            // ---> NUEVAS OPCIONES DE AGUJAS AÑADIDAS AL COMBO <---
-            selectType.option("⚙️ Engranaje"); 
-            selectType.option("⭕ Polea"); 
-            selectType.option("📏 Cre.+Guía");
-            selectType.option("🖊️ Segundero"); 
-            selectType.option("🖊️ Minutero"); 
-            selectType.option("🖊️ Horario");
-            // -------------------------------------------------
+            selectType.option("⚙️ Engranaje"); selectType.option("⭕ Polea"); selectType.option("📏 Cre.+Guía");
             selectType.style("font-size", "10px"); selectType.style("flex", "1");
             
             let bAdd = createButton("Añadir"); bAdd.parent(creationRow); this.styleBtn(bAdd, "#3498db");
@@ -281,11 +189,6 @@ class PropertyPanel {
                 if (t.includes("Engranaje")) { let g = this.system.addGearToShaft(this.selectedNode); this.selectedComponent = g; }
                 else if (t.includes("Polea")) { let p = this.system.createPulley("", 30); this.system.mountPulley(p, this.selectedNode); this.selectedComponent = p; }
                 else if (t.includes("Crem")) { let g = this.system.createGuide(this.selectedNode.x, this.selectedNode.y+80); let r = this.system.createRack(10,5); this.system.mountRack(r, g); this.selectedComponent = r; }
-                // ---> LÓGICA DE MONTAJE DE AGUJAS <---
-                else if (t.includes("Segundero")) { this.system.mountHand(this.system.createHand('segundero'), this.selectedNode); }
-                else if (t.includes("Minutero")) { this.system.mountHand(this.system.createHand('minutero'), this.selectedNode); }
-                else if (t.includes("Horario"))  { this.system.mountHand(this.system.createHand('horario'), this.selectedNode); }
-                // ---------------------------------------
                 this.update();
             });
 
@@ -422,13 +325,6 @@ class PropertyPanel {
                     this.setActiveStyle(this.btnConnectRack); 
                     this.system.beginRackConnection(this.selectedComponent); 
                 });
-                this.btnDisconnect = this.addBtn(actionRow, "✂️ Deseng", "#7f8c8d", () => { 
-                    if (this.selectedComponent) {
-                        // Llama a la función que ya debería existir en tu MechanicalSystem
-                        this.system.disconnectComponent(this.selectedComponent); 
-                        this.update();
-                    }
-                });
                 
                 this.addBtn(actionRow, "⭕ Corona", "#7f8c8d", () => { 
                     let sun = this.system.findCenterShaftFor(this.selectedNode); let sT = sun ? sun.components[0].teeth : 30; 
@@ -473,38 +369,60 @@ class PropertyPanel {
             this.addSeparator();
         }
 
-        // ==========================================
-        // SECCIÓN ELIMINAR
-        // ==========================================
-        if (!(this.selectedNode instanceof LinearGuide)) {
+        // --- SECCIÓN PELIGRO FALSO (Aseguramos que no esté duplicado) ---
+        // Nota: Este bloque ya se movió arriba en la versión definitiva, lo dejo comentado por seguridad
+        /*
+        if (!this.selectedComponent && !(this.selectedNode instanceof LinearGuide)) {
+            let row = createDiv(); row.parent(this.editor); row.style("margin-bottom", "4px");
+            this.addBtn(row, "🪃 Añadir Péndulo", "#8e44ad");
+            row.mousePressed(() => { this.system.createPendulum(this.selectedNode, 150, PI/4, 1); this.update(); });
             this.addSeparator();
-            this.addSectionTitle("🗑️ Eliminar");
-            let delRow = createDiv();
-            delRow.parent(this.editor);
-            delRow.style("display", "flex");
-            delRow.style("gap", "4px");
-            delRow.style("margin-bottom", "4px");
+        }
+        */
 
-            // Botón para borrar solo el componente seleccionado (engranaje o polea)
-            if (this.selectedComponent) {
-                this.addBtn(delRow, "🗑️ Comp.", "#c0392b", () => {
-                    // NOTA: Ajusta el nombre de estas funciones si en tu MechanicalSystem se llaman distinto (ej. deleteGear)
-                    if (this.selectedComponent instanceof Gear) this.system.removeGear(this.selectedComponent);
-                    else if (this.selectedComponent instanceof Pulley) this.system.removePulley(this.selectedComponent);
-                    this.selectedComponent = null;
-                    this.update();
-                });
-            }
+        // --- SECCIÓN PELIGRO (La correcta) ---
+        if (!this.selectedComponent && !(this.selectedNode instanceof LinearGuide)) {
+            let row = createDiv(); row.parent(this.editor); row.style("margin-bottom", "4px");
+            let btnPend = createButton("🪃 Añadir Péndulo", "#8e44ad");
+            btnPend.parent(row);
+            this.styleBtn(btnPend, "#8e44ad");
+            btnPend.mousePressed(() => { this.system.createPendulum(this.selectedNode, 150, PI/4, 1); this.update(); });
+            this.addSeparator();
+        }
 
-            // Botón para borrar el eje completo y todo lo montado en él
-            this.addBtn(delRow, "💣 Eje", "#922b21", () => {
-                let shaftToDelete = this.selectedNode;
-                this.setSelection(null); 
-                // NOTA: Ajusta si tu función se llama deleteShaft en lugar de removeShaft
-                this.system.removeShaft(shaftToDelete); 
-                this.update();
-            });
-        }      
+        // --- SECCIÓN PELIGRO FALSO (Aseguramos que no esté duplicado) ---
+        /*
+        if (!this.selectedComponent && !(this.selectedNode instanceof LinearGuide)) {
+            let row = createDiv(); row.parent(this.editor); row.style("margin-bottom", "4px");
+            let btnPend = createButton("🪃 Añadir Péndulo", "#8e44ad");
+            btnPend.parent(row);
+            this.styleBtn(btnPend, "#8e44ad");
+            btnPend.mousePressed(() => { this.system.createPendulum(this.selectedNode, 150, PI/4, 1); this.update(); });
+            this.addSeparator();
+        }
+        */
+
+        // --- SECCIÓN PELIGRO FALSO (Aseguramos que no esté duplicado) ---
+        /*
+        if (!this.selectedComponent && !(this.selectedNode instanceof LinearGuide)) {
+            let row = create_div(); row.parent(this.editor); row.style("margin-bottom", "4px");
+            let btnPend = createButton("🪃 Añadir Péndulo", "#8e44ad");
+            btnPend.parent(row);
+            this.styleBtn(btnPend, "#8e44 Babylon;  <-- OJO: Esto es un error de tipeo, debe ser #8e44ad
+            btnPend.mousePressed(() => { this.system.createPendulum(this.selectedNode, 150, PI/4, 1); this.update(); });
+            this.addSeparator();
+        }
+        */
+
+        // --- SECCIÓN PELIGRO (La definitiva) ---
+        if (!this.selectedComponent && !(this.selectedNode instanceof LinearGuide)) {
+            let row = createDiv(); row.parent(this.editor); row.style("margin-bottom", "4px");
+            let btnPend = createButton("🪃 Añadir Péndulo", "#8e44ad");
+            btnPend.parent(row);
+            this.styleBtn(btnPend, "#8e44ad");
+            btnPend.mousePressed(() => { this.system.createPendulum(this.selectedNode, 150, PI/4, 1); this.update(); });
+            this.addSeparator();
+        }
 
 // ==========================================
         // ANÁLIZADOR CINEMÁTICO (Topología real, sin depender de la Parte 2)
@@ -576,8 +494,9 @@ class PropertyPanel {
         this.drawAudioUI();
     }
   
-    // ---> INICIO UI DE PERSISTENCIA Y TOGGLE AUDIO <---
-    drawPersistenceUI() {
+  // ---> INICIO UI DE PERSISTENCIA REUTILIZABLE <---
+  
+  drawPersistenceUI() {
         this.addSeparator();
         this.addSectionTitle("💾 Guardar / Cargar Diseño");
         
@@ -618,24 +537,11 @@ class PropertyPanel {
             };
             input.click();
         });
-
-        // ---> NUEVO BOTÓN TOGGLE <---
-        let btnAudio = createButton(this.audioPanelOpen ? "🔊 Cerrar" : "🔊 Audio");
-        btnAudio.parent(persistRow); 
-        // Si está abierto, lo pintamos de rojo para indicar que se puede cerrar
-        this.styleBtn(btnAudio, this.audioPanelOpen ? "#c0392b" : "#7f8c8d"); 
-        btnAudio.mousePressed(() => { 
-            this.audioPanelOpen = !this.audioPanelOpen; 
-            this.update(); // Refresca el panel para abrir/cerrar los controles
-        });
     }
-    // ---> FIN UI DE PERSISTENCIA Y TOGGLE AUDIO <---  
+    // ---> FIN UI DE PERSISTENCIA REUTILIZABLE <---  
 
-    // ---> INICIO UI DE AUDIO OCULTABLE <---
+    // ---> INICIO UI DE AUDIO REUTILIZABLE <---
     drawAudioUI() {
-        // Si el panel NO está abierto, no dibujamos nada y ahorramos espacio
-        if (!this.audioPanelOpen) return; 
-        
         this.addSeparator();
         this.addSectionTitle("🔊 Configuración de Audio");
         
@@ -685,7 +591,7 @@ class PropertyPanel {
         sliderVol.style("flex", "1"); 
         sliderVol.input(() => { soundVolume = sliderVol.value() / 100; });
     }
-    // ---> FIN UI DE AUDIO OCULTABLE <---
+    // ---> FIN UI DE AUDIO REUTILIZABLE <---
   
     // --- UTILIDADES DE DISEÑO COMPACTO ---
     addSectionTitle(text) {

@@ -58,22 +58,14 @@ class Renderer {
         scale(zoom);
         translate(-camX, -camY);
 
-        // ---> INICIO CÁLCULO DE DELTA REAL <---
-        // Guardamos los ángulos ACTUALES (que vienen del update de este frame)
-        if (!this.prevAngles) this.prevAngles = {};
-        let currentFrameAngles = {};
-        for (let s of this.system.shafts) {
-            currentFrameAngles[s.id] = s.angle;
-        }
-        // ---> FIN CÁLCULO DE DELTA REAL <---
-
-        // 1. GRILLA DE FONDO
+// 1. GRILLA DE FONDO (Debe ir primero para que todo se dibuje encima)
         this.drawGrid();
 
-        // 2. LA ESFERA 
+        // 1. Dibujar la esfera y las agujas del reloj DEBAJO de la mecánica
         this.drawClockDial();
+        this.drawClockHands();
 
-        // 3. LA MECÁNICA COMPLETA
+        // 2. Dibujar la mecánica
         this.drawMeshes();
         this.drawBelts();
         this.drawRackMeshes(); 
@@ -85,20 +77,15 @@ class Renderer {
         this.drawShafts();
         this.drawGuides();
 
-        // 4. ESCAPE Y PÉNDULO
+        // 3. Escape y Péndulo (El áncora debe ir antes que el péndulo)
         this.drawAnchors(); 
         this.drawPendulums(); 
       
-        // 5. LAS AGUJAS
-        this.drawClockHands();
-
-        // ---> ACTUALIZAR HISTORIAL PARA EL SIGUIENTE FRAME <---
-        // Al final del dibujado, guardamos estos ángulos como el "pasado" para el próximo frame
-        this.prevAngles = currentFrameAngles;
-        // ---------------------------------------------------
+        this.drawShafts();
         
         pop();
     }
+
     drawShafts(){
         for(let shaft of this.system.shafts){
                 this.drawShaft(shaft);
@@ -108,8 +95,44 @@ class Renderer {
     drawShaft(shaft){    
         push();
         translate(shaft.x, shaft.y);
-      
-      // Dibujar el centro del eje
+        
+        // Solo dibujar agujas sueltas si NO hemos creado la esfera del reloj aún
+        if (!this.system.hourHandShaft) {
+            
+            // ---> AGUJA DE LOS SEGUNDOS <---
+            let isEscapeShaft = false;
+            for (let esc of this.system.escapements) {
+                if (esc.escapeGear.shaft === shaft) isEscapeShaft = true;
+            }
+            if (isEscapeShaft) {
+                rotate(shaft.angle);
+                stroke(200, 0, 0); fill(200, 0, 0); noStroke();
+                strokeWeight(2); line(0, 0, 0, -60);
+                strokeWeight(3); line(0, 0, 0, 15);
+                rotate(-shaft.angle); 
+            }
+
+            // ---> AGUJA DE LOS MINUTOS <---
+            if (this.system.minuteHandShaft === shaft) {
+                rotate(shaft.angle);
+                stroke(0, 0, 200); fill(0, 0, 200); noStroke();
+                strokeWeight(3); line(0, 0, 0, -45);
+                strokeWeight(4); line(0, 0, 0, 10);
+                rotate(-shaft.angle); 
+            }
+
+            // ---> AGUJA DE LAS HORAS <---
+            if (this.system.hourHandShaft === shaft) {
+                rotate(shaft.angle);
+                stroke(0, 180, 0); fill(0, 180, 0); noStroke();
+                strokeWeight(4); line(0, 0, 0, -25);
+                strokeWeight(5); line(0, 0, 0, 8);
+                rotate(-shaft.angle); 
+            }
+        }
+        // ---> FIN BLOQUE DE AGUJAS SUELTAS <---
+
+        // Dibujar el centro del eje
         strokeWeight(2);
         if (shaft.selected) {
             // Prioridad 1: Si está seleccionado, Rojo
@@ -124,9 +147,7 @@ class Renderer {
         }
         else { fill(255); stroke(0); }
         circle(0,0,12);
-        pop();  
-        // Dibujar flecha de giro si el eje se está moviendo
-        this.drawRotationIndicator(shaft);
+        pop();    
     }
   
     drawGears(){
@@ -176,11 +197,8 @@ class Renderer {
             }
 
             // ---> INICIO LA LÓGICA DEL ANILLO <---
-            // Contar solo componentes tangibles (ignorando las agujas)
-            let tangibleComponents = gear.shaft.components.filter(c => !(c instanceof Hand));
-            
-            if (tangibleComponents.length > 1) {
-                // Hay más componentes tangibles en este eje. 
+            if (gear.shaft.components.length > 1) {
+                // Hay más componentes en este eje. 
                 // Dibujar el cuerpo como un anillo hueco para no tapar lo que está debajo
                 noFill(); 
                 stroke(0);
@@ -193,13 +211,21 @@ class Renderer {
                 circle(0, 0, gear.pitchRadius * 2);
                 drawingContext.setLineDash([]); // Restaurar línea sólida
             } else {
-                // Es el único componente tangible. Dibujado sólido normal.
+                // Es el único componente. Dibujado sólido normal.
                 fill(220);
                 stroke(0);
                 strokeWeight(1);
                 circle(0, 0, gear.rootRadius * 2);
             }
             // ---> FIN LA LÓGICA DEL ANILLO <---
+        }
+
+        // Testigo visual: Un punto rojo SOLO en la rueda de escape
+        let isEscapeGear = this.system.escapements.some(esc => esc.escapeGear === gear);
+        if (isEscapeGear) {
+            fill(255, 0, 0);
+            noStroke();
+            circle(gear.outsideRadius - 5, 0, 10);
         }
 
         noFill();
@@ -457,152 +483,34 @@ class Renderer {
         pop(); // Cerrar péndulo
     }   
 
-    drawClockHands() {
-        // Dibujar CADA aguja física en el eje exacto donde está atornillada
-        for (let hand of this.system.hands) {
-            if (!hand.shaft) continue; // Seguridad por si está flotando en el limbo
-            
-            push();
-            // Trasladarnos al centro del eje donde está montada esta aguja específica
-            translate(hand.shaft.x, hand.shaft.y);
-            
-            // Rotar usando el ángulo FÍSICO de ese eje
-            rotate(hand.shaft.angle - HALF_PI); 
-            
-            stroke(hand.color[0], hand.color[1], hand.color[2]);
-            strokeWeight(hand.strokeW);
-            strokeCap(ROUND);
-            
-            // Dibujar el rabito/contrapeso si lo tiene (ej. el segundero)
-            if (hand.tailLength > 0) {
-                line(-hand.tailLength, 0, 0, 0);
-            }
-            
-            // Dibujar la aguja principal
-            line(0, 0, hand.length, 0);
-            
-            pop();
-        }
-    }
-
-  
-    drawClockHands() {
-        // Dibujar CADA aguja física en el eje exacto donde está atornillada
-        for (let hand of this.system.hands) {
-            if (!hand.shaft) continue; 
-            
-            push();
-            translate(hand.shaft.x, hand.shaft.y);
-            rotate(hand.shaft.angle - HALF_PI); 
-            
-            stroke(hand.color[0], hand.color[1], hand.color[2]);
-            strokeWeight(hand.strokeW);
-            strokeCap(ROUND);
-            
-            if (hand.tailLength > 0) {
-                line(-hand.tailLength, 0, 0, 0);
-            }
-            
-            line(0, 0, hand.length, 0);
-            pop();
-        }
-    }
-  
-    // ---> INICIO INDICADOR DE GIRO CON MEMORIA <---
-    drawRotationIndicator(shaft) {
-        if (shaft.components.length === 0) return; 
+    drawClockDial() {
+        // Solo dibujar la esfera si existe el tren de horas
+        if (!this.system.hourHandShaft) return; 
         
-        // Inicializar diccionarios de memoria si no existen
-        if (!this.lastDeltaSign) this.lastDeltaSign = {};
-        if (!this.lastMovementTime) this.lastMovementTime = {};
-
-        // Calcular la diferencia de ángulo
-        let prevA = this.prevAngles ? (this.prevAngles[shaft.id] || 0) : 0;
-        let deltaAngle = shaft.angle - prevA;
-        
-        // Si hubo movimiento REAL en este frame (ej. el tick del escape)
-        if (Math.abs(deltaAngle) > 0.0001) {
-            this.lastDeltaSign[shaft.id] = deltaAngle > 0 ? 1 : -1; // Guarda la dirección
-            this.lastMovementTime[shaft.id] = millis();             // Guarda la hora del movimiento
-        }
-        
-        // Si NO se ha movido en los últimos 2 segundos, apagar la flecha
-        let lastMove = this.lastMovementTime[shaft.id] || 0;
-        if (millis() - lastMove > 2000) return; 
-
-        // Recuperar la dirección que recordamos
-        let dir = this.lastDeltaSign[shaft.id];
-        
-        push();
-        translate(shaft.x, shaft.y);
-        
-        let arrowRadius = 14; 
-        let arcLength = PI * 1.5; 
-        
-        stroke(50, 50, 50, 200); 
-        strokeWeight(2);
-        noFill();
-        
-        let startAngle, endAngle, tipAngle, tangentAngle;
-        
-        if (dir > 0) {
-            startAngle = -HALF_PI;
-            endAngle = startAngle + arcLength;
-            tipAngle = endAngle; 
-            tangentAngle = tipAngle + HALF_PI; 
-        } else {
-            endAngle = HALF_PI;
-            startAngle = endAngle - arcLength;
-            tipAngle = startAngle; 
-            tangentAngle = tipAngle - HALF_PI; 
-        }
-        
-        arc(0, 0, arrowRadius * 2, arrowRadius * 2, startAngle, endAngle);
-        
-        fill(50, 50, 50, 200);
-        noStroke();
-        let tipX = cos(tipAngle) * arrowRadius;
-        let tipY = sin(tipAngle) * arrowRadius;
-        
-        push();
-        translate(tipX, tipY);
-        rotate(tangentAngle);
-        triangle(0, 0, -6, -3, -6, 3);
-        pop();
-        
-        pop();
-    }
-    // ---> FIN INDICADOR DE GIRO CON MEMORIA <---
-  
-      drawClockDial() {
-        // Buscar físicamente dónde está la esfera
-        let hourHand = this.system.hands.find(h => h.type === 'horario' && h.shaft);
-        let minuteHand = this.system.hands.find(h => h.type === 'minutero' && h.shaft);
-        let dialCenterShaft = hourHand ? hourHand.shaft : (minuteHand ? minuteHand.shaft : null);
-        
-        if (!dialCenterShaft) return; 
-        
-        let cx = dialCenterShaft.x;
-        let cy = dialCenterShaft.y;
-        let dialRadius = 55; 
+        let cx = this.system.hourHandShaft.x;
+        let cy = this.system.hourHandShaft.y;
+        let dialRadius = 55; // Tamaño de la esfera
         
         push();
         translate(cx, cy);
         
+        // 1. El cristal de la esfera (fondo blanco semi-transparente)
         fill(255, 255, 255, 220); 
         stroke(40);
         strokeWeight(3);
         circle(0, 0, dialRadius * 2);
         
+        // 2. Las marcas de los minutos (60 rayas)
         stroke(150);
         strokeWeight(1);
         for (let i = 0; i < 60; i++) {
-            let angle = (i * TWO_PI / 60) - HALF_PI; 
+            let angle = (i * TWO_PI / 60) - HALF_PI; // -HALF_PI para que el 0 sea arriba
             let r1 = dialRadius - 5;
             let r2 = dialRadius - 1;
             line(Math.cos(angle)*r1, Math.sin(angle)*r1, Math.cos(angle)*r2, Math.sin(angle)*r2);
         }
         
+        // 3. Los números de las horas
         fill(40);
         noStroke();
         textAlign(CENTER, CENTER);
@@ -616,5 +524,51 @@ class Renderer {
         
         pop();
     }
-  
+
+    drawClockHands() {
+        if (!this.system.hourHandShaft) return;
+        
+        let cx = this.system.hourHandShaft.x;
+        let cy = this.system.hourHandShaft.y;
+        
+        let secAngle = (this.system.totalTicks % 60) * (TWO_PI / 60);
+        // Sin signos negativos. El ángulo de p5.js ya es horario naturalmente.
+        let minAngle = this.system.minuteHandShaft ? this.system.minuteHandShaft.angle : 0;
+        let hourAngle = this.system.hourHandShaft.angle;
+        
+        push();
+        translate(cx, cy);
+        
+        // Aguja de Horas (Verde)
+        push();
+        rotate(hourAngle - HALF_PI); 
+        stroke(0, 150, 0);
+        strokeWeight(6);
+        strokeCap(ROUND);
+        line(0, 0, 28, 0);
+        pop();
+        
+        // Aguja de Minutos (Azul)
+        push();
+        rotate(minAngle - HALF_PI);
+        stroke(0, 0, 200);
+        strokeWeight(4);
+        strokeCap(ROUND);
+        line(0, 0, 42, 0);
+        pop();
+        
+        // Aguja de Segundos (Roja)
+        push();
+        rotate(secAngle - HALF_PI); 
+        stroke(200, 0, 0);
+        strokeWeight(1.5);
+        line(-8, 0, 48, 0);
+        pop();
+        
+        fill(40);
+        noStroke();
+        circle(0, 0, 6);
+        
+        pop();
+    }
 }
