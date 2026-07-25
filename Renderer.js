@@ -2,6 +2,8 @@ class Renderer {
 
     constructor(system){
         this.system = system;
+        this.gearCache = {};
+        this.cacheDirty = true;
     }
 
     drawGrid() {
@@ -98,14 +100,37 @@ class Renderer {
         // ---------------------------------------------------
         
         pop();
+        
+        this.drawRulers(); // <--- AÑADIR ESTO
     }
+  
     drawShafts(){
+        if (presentationMode) {
+            // Colores más vibrantes o brillantes
+            fill(255, 255, 255, 200);
+            stroke(255, 255, 255, 150);
+        } else {
+            // Colores normales
+            fill(220);
+            stroke(0);
+        }
+      
         for(let shaft of this.system.shafts){
                 this.drawShaft(shaft);
         }
     }
 
-    drawShaft(shaft){    
+    drawShaft(shaft){
+        if (presentationMode) {
+            // Colores más vibrantes o brillantes
+            fill(255, 255, 255, 200);
+            stroke(255, 255, 255, 150);
+        } else {
+            // Colores normales
+            fill(220);
+            stroke(0);
+        }
+      
         push();
         translate(shaft.x, shaft.y);
       
@@ -129,84 +154,84 @@ class Renderer {
         this.drawRotationIndicator(shaft);
     }
   
-    drawGears(){
+    drawGears(){     
         for(let gear of this.system.gears){
             this.drawGear(gear);
         }
     }
 
-    drawGear(gear){
+    drawGear(gear) {
+        if (!gear.shaft) return;
+    
+        // ---> VISIBILIDAD DE PLANO <---
+        let gPlane = (gear.plane !== undefined) ? gear.plane : 0;
+        let isVisible = (activePlane === null || gPlane === activePlane);
+        if (!isVisible) return;
+    
+/*        // ---> UMBRAL DE CAMBIO DE ÁNGULO <---
+        let currentAngle = gear.angle;
+        let angleChanged = false;
+        if (gear._lastRenderAngle === undefined || Math.abs(currentAngle - gear._lastRenderAngle) > 1e-6) {
+            angleChanged = true;
+            gear._lastRenderAngle = currentAngle;
+        }
+
+// ---> UMBRAL DE CAMBIO DE ÁNGULO <---
+let currentAngle = gear.angle;
+let angleChanged = false;
+let delta = Math.abs(currentAngle - (gear._lastRenderAngle || 0));
+
+// ✅ Log solo para engranajes grandes (E4 y E6, > 40 dientes)
+if (gear.teeth > 40) {
+    console.log(`📐 ${gear.name}: delta=${delta.toFixed(10)}, current=${currentAngle.toFixed(4)}, last=${(gear._lastRenderAngle || 0).toFixed(4)}`);
+}
+
+if (gear._lastRenderAngle === undefined || delta > 1e-6) {
+    angleChanged = true;
+    gear._lastRenderAngle = currentAngle;
+}  */    
+    
+        // ---> CACHE <---
+        let hash = this.getGearHash(gear);
+        
+        // ✅ Solo regenerar si cambió el ángulo, el cache está sucio o no existe
+        if (this.cacheDirty || !this.gearCache[hash]) {  
+            this.gearCache[hash] = this.renderGearToBuffer(gear);
+        }
+      
+        // ---> DIBUJAR DESDE CACHE <---
         push();
         translate(gear.x, gear.y);
         rotate(gear.angle);
-        
-        if (gear.teeth > 40) {
-            // --- ENGRANAJES GRANDES (Optimizados) ---
-            noFill();
-            stroke(180);
-            strokeWeight(1);
-            circle(0, 0, gear.pitchRadius * 2);
-            circle(0, 0, gear.outsideRadius * 2);
-            
-            // Si está apilado, dibujar el interior ligeramente sombreado
-            if (gear.shaft.components.length > 1) {
-                fill(220, 220, 220, 100); // Semi-transparente
-                stroke(0);
-                strokeWeight(1);
-                circle(0, 0, gear.rootRadius * 2);
-            } else {
-                fill(220, 220, 220, 150);
-                stroke(0);
-                strokeWeight(1);
-                circle(0, 0, gear.rootRadius * 2);
-            }
-        } else {
-            // --- ENGRANAJES NORMALES ---
-            rectMode(CENTER);
-            let step = TWO_PI / gear.teeth;
-            stroke(0);
-            strokeWeight(1);
-            fill(220);
-            for (let i = 0; i < gear.teeth; i++) {
-                push();
-                rotate(i * step);
-                rectMode(CENTER);
-                rect((gear.rootRadius + gear.outsideRadius) / 2, 0, gear.outsideRadius - gear.rootRadius, gear.module * 1.35);
-                pop();
-            }
-
-            // ---> INICIO LA LÓGICA DEL ANILLO <---
-            // Contar solo componentes tangibles (ignorando las agujas)
-            let tangibleComponents = gear.shaft.components.filter(c => !(c instanceof Hand));
-            
-            if (tangibleComponents.length > 1) {
-                // Hay más componentes tangibles en este eje. 
-                // Dibujar el cuerpo como un anillo hueco para no tapar lo que está debajo
-                noFill(); 
-                stroke(0);
-                strokeWeight(1);
-                circle(0, 0, gear.rootRadius * 2);
-                
-                // Añadir línea punteada en el Pitch Radius (estilo plano técnico)
-                drawingContext.setLineDash([4, 4]); // Línea a rayas
-                stroke(100, 100, 255); // Azul claro
-                circle(0, 0, gear.pitchRadius * 2);
-                drawingContext.setLineDash([]); // Restaurar línea sólida
-            } else {
-                // Es el único componente tangible. Dibujado sólido normal.
-                fill(220);
-                stroke(0);
-                strokeWeight(1);
-                circle(0, 0, gear.rootRadius * 2);
-            }
-            // ---> FIN LA LÓGICA DEL ANILLO <---
+    
+        // ✅ Colores según modo presentación
+        if (presentationMode) {
+            // Colores más vibrantes o brillantes (se aplican al dibujar desde cache)
+            // Nota: El cache ya tiene los colores definidos en renderGearToBuffer()
+            // Para el modo presentación, podrías querer regenerar el cache con otros colores
+            // Por simplicidad, dejamos que el cache maneje los colores
         }
-
-        noFill();
-        pop();    
+    
+        let buffer = this.gearCache[hash];
+        if (buffer) {
+            let size = buffer.width;
+            image(buffer, -size/2, -size/2);
+        }
+        
+        pop();
     }
-
+  
     drawMeshes(){
+        if (presentationMode) {
+            // Colores más vibrantes o brillantes
+            fill(255, 255, 255, 200);
+            stroke(255, 255, 255, 150);
+        } else {
+            // Colores normales
+            fill(220);
+            stroke(0);
+        }
+      
         for(let mesh of this.system.meshes){
             if(mesh.isValid) stroke(180);
             else stroke(255,0,0);
@@ -216,6 +241,16 @@ class Renderer {
     }
 
     drawBelt(belt) {
+        if (presentationMode) {
+            // Colores más vibrantes o brillantes
+            fill(255, 255, 255, 200);
+            stroke(255, 255, 255, 150);
+        } else {
+            // Colores normales
+            fill(220);
+            stroke(0);
+        }
+      
         if (!belt.driverEntry || !belt.driverExit || !belt.drivenEntry || !belt.drivenExit) return;
     
         stroke(60);
@@ -240,12 +275,32 @@ class Renderer {
     }
 
     drawBelts() {
+        if (presentationMode) {
+            // Colores más vibrantes o brillantes
+            fill(255, 255, 255, 200);
+            stroke(255, 255, 255, 150);
+        } else {
+            // Colores normales
+            fill(220);
+            stroke(0);
+        }
+      
         for (const belt of this.system.belts) {
             this.drawBelt(belt);
         }
     }
 
     drawPulley(pulley) {
+        if (presentationMode) {
+            // Colores más vibrantes o brillantes
+            fill(255, 255, 255, 200);
+            stroke(255, 255, 255, 150);
+        } else {
+            // Colores normales
+            fill(220);
+            stroke(0);
+        }
+      
         if (!pulley) return;
         push();
         translate(pulley.x, pulley.y);
@@ -258,18 +313,48 @@ class Renderer {
     } 
 
     drawPulleys() {
+        if (presentationMode) {
+            // Colores más vibrantes o brillantes
+            fill(255, 255, 255, 200);
+            stroke(255, 255, 255, 150);
+        } else {
+            // Colores normales
+            fill(220);
+            stroke(0);
+        }
+      
         for (const pulley of this.system.pulleys) {
             this.drawPulley(pulley);
         }
     }
 
     drawGuides() {
+        if (presentationMode) {
+            // Colores más vibrantes o brillantes
+            fill(255, 255, 255, 200);
+            stroke(255, 255, 255, 150);
+        } else {
+            // Colores normales
+            fill(220);
+            stroke(0);
+        }
+      
         for (let guide of this.system.guides) {
             this.drawGuide(guide);
         }
     }
 
     drawGuide(guide) {
+        if (presentationMode) {
+            // Colores más vibrantes o brillantes
+            fill(255, 255, 255, 200);
+            stroke(255, 255, 255, 150);
+        } else {
+            // Colores normales
+            fill(220);
+            stroke(0);
+        }
+      
         push();
         translate(guide.x, guide.y);
         rotate(guide.angle);
@@ -284,12 +369,32 @@ class Renderer {
     }
 
     drawRacks() {
+        if (presentationMode) {
+            // Colores más vibrantes o brillantes
+            fill(255, 255, 255, 200);
+            stroke(255, 255, 255, 150);
+        } else {
+            // Colores normales
+            fill(220);
+            stroke(0);
+        }
+      
         for (let rack of this.system.racks) {
             this.drawRack(rack);
         }
     }
 
     drawRack(rack) {
+        if (presentationMode) {
+            // Colores más vibrantes o brillantes
+            fill(255, 255, 255, 200);
+            stroke(255, 255, 255, 150);
+        } else {
+            // Colores normales
+            fill(220);
+            stroke(0);
+        }
+      
         push();
         translate(rack.x, rack.y);
         if(rack.guide) rotate(rack.guide.angle); 
@@ -309,6 +414,16 @@ class Renderer {
     }
 
     drawRackMeshes() {
+        if (presentationMode) {
+            // Colores más vibrantes o brillantes
+            fill(255, 255, 255, 200);
+            stroke(255, 255, 255, 150);
+        } else {
+            // Colores normales
+            fill(220);
+            stroke(0);
+        }
+      
         for (let mesh of this.system.rackMeshes) {
             if(mesh.isValid) stroke(0, 150, 0); 
             else stroke(255, 0, 0);
@@ -318,6 +433,16 @@ class Renderer {
     }
 
     drawCarriers() {
+        if (presentationMode) {
+            // Colores más vibrantes o brillantes
+            fill(255, 255, 255, 200);
+            stroke(255, 255, 255, 150);
+        } else {
+            // Colores normales
+            fill(220);
+            stroke(0);
+        }
+      
         for(let carrier of this.system.carriers) {
             let cx = carrier.centerShaft.x;
             let cy = carrier.centerShaft.y;
@@ -337,7 +462,17 @@ class Renderer {
         }
     }
 
-      drawAnnuli() {
+    drawAnnuli() {
+        if (presentationMode) {
+            // Colores más vibrantes o brillantes
+            fill(255, 255, 255, 200);
+            stroke(255, 255, 255, 150);
+        } else {
+            // Colores normales
+            fill(220);
+            stroke(0);
+        }
+        
         for (let annulus of this.system.annuli) {
             push();
             translate(annulus.x, annulus.y);
@@ -371,6 +506,16 @@ class Renderer {
     }
 
     drawPendulums() {
+        if (presentationMode) {
+            // Colores más vibrantes o brillantes
+            fill(255, 255, 255, 200);
+            stroke(255, 255, 255, 150);
+        } else {
+            // Colores normales
+            fill(220);
+            stroke(0);
+        }
+      
         for (let pend of this.system.pendulums) {
             let sx = pend.shaft.x;
             let sy = pend.shaft.y;
@@ -394,13 +539,40 @@ class Renderer {
         }
     }  
 
-      drawAnchors() {
+    drawAnchors() {
+        if (presentationMode) {
+            // Colores más vibrantes o brillantes
+            fill(255, 255, 255, 200);
+            stroke(255, 255, 255, 150);
+        } else {
+            // Colores normales
+            fill(220);
+            stroke(0);
+        }      
         for (let esc of this.system.escapements) {
-            this.drawAnchor(esc);
-        }
+            // ✅ Dibujar según tipo
+            if (esc.type === 'cylinder') {
+                this.drawCylinderAnchor(esc);
+            } else if (esc.type === 'detent') {
+                this.drawDetentAnchor(esc);
+            } else if (esc.type === 'verge') {
+                this.drawVergeAnchor(esc);
+            } else {
+                this.drawSwissAnchor(esc);
+            }
+        }  
     }
 
-    drawAnchor(esc) {
+    drawSwissAnchor(esc) {
+        if (presentationMode) {
+            // Colores más vibrantes o brillantes
+            fill(255, 255, 255, 200);
+            stroke(255, 255, 255, 150);
+        } else {
+            // Colores normales
+            fill(220);
+            stroke(0);
+        }      
         let px = esc.pendulum.shaft.x;
         let py = esc.pendulum.shaft.y;
         let ex = esc.escapeGear.shaft.x;
@@ -455,7 +627,84 @@ class Renderer {
         
         pop(); // Cerrar dirección
         pop(); // Cerrar péndulo
-    }   
+    }  
+
+    drawCylinderAnchor(esc) {
+        let px = esc.pendulum.shaft.x;
+        let py = esc.pendulum.shaft.y;
+        let pAngle = esc.pendulum.shaft.angle;
+        
+        push();
+        translate(px, py);
+        rotate(pAngle);
+        
+        // Cilindro: una barra con un círculo en el extremo
+        let armLength = esc.distanceToEscape * 0.6;
+        stroke(100, 100, 150);
+        strokeWeight(3);
+        line(0, 0, armLength, 0);
+        
+        // Cilindro (círculo)
+        fill(80, 80, 130, 150);
+        noStroke();
+        circle(armLength, 0, esc.cylinderRadius * 0.8);
+        
+        // Paleta de escape (pequeña)
+        fill(180, 50, 50);
+        rect(armLength + esc.cylinderRadius * 0.4, -4, 10, 8);
+        
+        pop();
+    }
+    
+    drawDetentAnchor(esc) {
+        // Dibujo para cronómetro (más minimalista)
+        let px = esc.pendulum.shaft.x;
+        let py = esc.pendulum.shaft.y;
+        let pAngle = esc.pendulum.shaft.angle;
+        
+        push();
+        translate(px, py);
+        rotate(pAngle);
+        
+        let armLength = esc.distanceToEscape * 0.5;
+        stroke(60, 60, 60);
+        strokeWeight(2);
+        line(0, 0, armLength, 0);
+        
+        // Detente (paleta simple)
+        fill(50, 50, 180);
+        noStroke();
+        rect(armLength, -3, 15, 6);
+        
+        pop();
+    }
+    
+    drawVergeAnchor(esc) {
+        // Dibujo para verge (escape de reculada)
+        let px = esc.pendulum.shaft.x;
+        let py = esc.pendulum.shaft.y;
+        let pAngle = esc.pendulum.shaft.angle;
+        
+        push();
+        translate(px, py);
+        rotate(pAngle);
+        
+        // Brazo en Y más abierto
+        let armLength = esc.distanceToEscape * 0.7;
+        stroke(150, 100, 50);
+        strokeWeight(4);
+        line(0, 0, armLength, 0);
+        
+        // Paletas verticales (característico del verge)
+        fill(180, 100, 50);
+        noStroke();
+        rect(armLength, -8, 6, 16);
+        
+        // Paleta trasera
+        rect(armLength - 10, -12, 6, 6);
+        
+        pop();
+    }  
 
     drawClockHands() {
         // Dibujar CADA aguja física en el eje exacto donde está atornillada
@@ -485,7 +734,6 @@ class Renderer {
         }
     }
 
-  
     drawClockHands() {
         // Dibujar CADA aguja física en el eje exacto donde está atornillada
         for (let hand of this.system.hands) {
@@ -508,7 +756,6 @@ class Renderer {
         }
     }
   
-    // ---> INICIO INDICADOR DE GIRO CON MEMORIA <---
     drawRotationIndicator(shaft) {
         if (shaft.components.length === 0) return; 
         
@@ -572,9 +819,8 @@ class Renderer {
         
         pop();
     }
-    // ---> FIN INDICADOR DE GIRO CON MEMORIA <---
   
-      drawClockDial() {
+    drawClockDial() {
         // Buscar físicamente dónde está la esfera
         let hourHand = this.system.hands.find(h => h.type === 'horario' && h.shaft);
         let minuteHand = this.system.hands.find(h => h.type === 'minutero' && h.shaft);
@@ -616,5 +862,159 @@ class Renderer {
         
         pop();
     }
+
+    drawRulers() {
+        push(); // Abrimos un contexto UI (no afectado por la cámara)
+
+        // Fondos de las reglas
+        fill(230, 230, 230, 220);
+        noStroke();
+        rect(0, 0, width, 20); // Regla superior
+        rect(0, 0, 20, height); // Regla izquierda
+
+        // Calcular el paso ideal basado en la legibilidad del texto (mínimo 50px entre números)
+        let minScreenDist = 50; 
+        let rawStep = minScreenDist / zoom;
+
+        // Escudo de seguridad contra zooms extremos (Infinity o 0)
+        if (!isFinite(rawStep) || rawStep <= 0) rawStep = 50; 
+
+        // Algoritmo "1-2-5" para encontrar el múltiplo entero más bonito
+        let exponent = Math.floor(Math.log10(rawStep));
+        let fraction = rawStep / Math.pow(10, exponent);
+        
+        let niceFraction;
+        if (fraction <= 1.0) niceFraction = 1;
+        else if (fraction <= 2.0) niceFraction = 2;
+        else if (fraction <= 5.0) niceFraction = 5;
+        else niceFraction = 10;
+
+        let baseStep = niceFraction * Math.pow(10, exponent);
+        
+        // Forzar estrictamente a un número entero limpio, con un mínimo absoluto de 1
+        baseStep = Math.max(1, Math.round(baseStep));
+
+        // Límites del mundo que se ven en la pantalla
+        let worldLeft = (0 - width/2) / zoom + camX;
+        let worldRight = (width - width/2) / zoom + camX;
+        let worldTop = (0 - height/2) / zoom + camY;
+        let worldBottom = (height - height/2) / zoom + camY;
+
+        stroke(150);
+        strokeWeight(1);
+        fill(50);
+        textSize(9);
+        textFont('monospace'); // Fuente monoespaciada para que los números no bailen
+
+        // --- REGLA SUPERIOR (Eje X) ---
+        textAlign(CENTER, TOP);
+        let startX = Math.floor(worldLeft / baseStep) * baseStep;
+        for (let x = startX; x <= worldRight; x += baseStep) {
+            let sx = (x - camX) * zoom + width/2;
+            if (sx < 25 || sx > width) continue; // No dibujar debajo de la regla Y
+            
+            line(sx, 15, sx, 20); // Marca
+            text(Math.round(x), sx, 3); // Número entero
+        }
+
+        // --- REGLA IZQUIERDA (Eje Y) ---
+        textAlign(RIGHT, CENTER);
+        let startY = Math.floor(worldTop / baseStep) * baseStep;
+        for (let y = startY; y <= worldBottom; y += baseStep) {
+            let sy = (y - camY) * zoom + height/2;
+            if (sy < 25 || sy > height) continue; // No dibujar debajo de la regla X
+            
+            line(15, sy, 20, sy); // Marca
+            text(Math.round(y), 18, sy); // Número entero
+        }
+
+        pop(); // Cerrar contexto UI
+    }
+ 
+    getGearHash(gear) {
+        // Hash que cambia SOLO cuando la geometría del engranaje cambia
+        // El ángulo NO se incluye porque se aplica con rotate() al dibujar
+        return `${gear.id}-${gear.teeth}-${gear.module}-${gear.plane}`;
+//        return `${gear.id}-${gear.teeth}-${gear.module}-${gear.plane}-${gear.shaft ? gear.shaft.id : 'null'}`;
+    }  
+
+    invalidateCache() {
+        this.cacheDirty = true;
+    }
   
+    renderGearToBuffer(gear) {
+        // Crear buffer con tamaño suficiente
+        let margin = 10;
+        // ✅ Limitar el tamaño máximo del buffer
+        let maxSize = 800;
+        let size = Math.min((gear.outsideRadius + margin) * 2, maxSize);
+        let buffer = createGraphics(size, size);
+        buffer.clear();
+        buffer.translate(size/2, size/2);
+        
+        // ---> DIBUJAR ENGRANAJE (lógica extraída de drawGear) <---
+        if (gear.teeth > 40) {
+            // ENGRANAJES GRANDES (Optimizados)
+            buffer.noFill();
+            buffer.stroke(180);
+            buffer.strokeWeight(1);
+            buffer.circle(0, 0, gear.pitchRadius * 2);
+            buffer.circle(0, 0, gear.outsideRadius * 2);
+            
+            // Si está apilado, dibujar el interior ligeramente sombreado
+            if (gear.shaft.components.length > 1) {
+                buffer.fill(220, 220, 220, 100);
+            } else {
+                buffer.fill(220, 220, 220, 150);
+            }
+            buffer.stroke(0);
+            buffer.strokeWeight(1);
+            buffer.circle(0, 0, gear.rootRadius * 2);
+        } else {
+            // ENGRANAJES NORMALES
+            buffer.rectMode(CENTER);
+            let step = TWO_PI / gear.teeth;
+            buffer.stroke(0);
+            buffer.strokeWeight(1);
+            buffer.fill(220);
+            
+            for (let i = 0; i < gear.teeth; i++) {
+                buffer.push();
+                buffer.rotate(i * step);
+                buffer.rectMode(CENTER);
+                buffer.rect((gear.rootRadius + gear.outsideRadius) / 2, 0, 
+                            gear.outsideRadius - gear.rootRadius, gear.module * 1.35);
+                buffer.pop();
+            }
+    
+            // LÓGICA DEL ANILLO (engranajes apilados)
+            let tangibleComponents = gear.shaft.components.filter(c => !(c instanceof Hand));
+            
+            if (tangibleComponents.length > 1) {
+                buffer.noFill();
+                buffer.stroke(0);
+                buffer.strokeWeight(1);
+                buffer.circle(0, 0, gear.rootRadius * 2);
+                
+                // Línea punteada en el Pitch Radius
+                buffer.drawingContext.setLineDash([4, 4]);
+                buffer.stroke(100, 100, 255);
+                buffer.circle(0, 0, gear.pitchRadius * 2);
+                buffer.drawingContext.setLineDash([]);
+            } else {
+                buffer.fill(220);
+                buffer.stroke(0);
+                buffer.strokeWeight(1);
+                buffer.circle(0, 0, gear.rootRadius * 2);
+            }
+        }
+        
+        buffer.noFill();
+        return buffer;
+    }
+
+    refresh() {
+        this.cacheDirty = true; // ✅ Forzar regeneración del cache
+    }  
+ 
 }

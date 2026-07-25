@@ -11,6 +11,7 @@ class Shaft {
         this.visited = false;        
         this.lockedByCarrier = false;
         this.lockedByEscapement = false;
+        this.isLocked = false; // Por defecto, movimiento libre
     }
 
     addComponent(component) {

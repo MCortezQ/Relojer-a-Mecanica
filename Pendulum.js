@@ -43,17 +43,33 @@ class Pendulum {
         this.shaft.omega = this.angularVelocity;
     }
 
-    // Devuelve true en el instante exacto en que cruza el centro
-    // Devuelve true en el instante exacto en que cruza el centro
+
     isAtCenter() {
-        // Ignorar cruces si la velocidad es casi nula (evita falsos positivos)
+        // 1. FILTRO DE VELOCIDAD: Ignorar cruces si la velocidad es casi nula
+        //    (evita falsos positivos por vibración)
         if (Math.abs(this.angularVelocity) < 0.3) {
             this.lastTickAngle = this.currentAngle;
             return false;
         }
-
+    
+        // 2. DETECCIÓN DIRECTA: ¿Cambió de signo entre frames?
         let crossed = (this.lastTickAngle < 0 && this.currentAngle >= 0) || 
                       (this.lastTickAngle > 0 && this.currentAngle <= 0);
+    
+        // 3. DETECCIÓN POR INTERPOLACIÓN (NUEVO): 
+        //    Si el salto fue grande, verificar si la línea recta entre ambos puntos cruza el cero
+        if (!crossed && Math.abs(this.currentAngle - this.lastTickAngle) > 0.1) {
+            // Calcular el punto de intersección con el eje X (ángulo = 0)
+            // Usamos interpolación lineal: t = -y1 / (y2 - y1)
+            let t = -this.lastTickAngle / (this.currentAngle - this.lastTickAngle);
+            
+            // Si t está entre 0 y 1, significa que cruzó en algún punto intermedio
+            if (t > 0 && t < 1) {
+                crossed = true;
+            }
+        }
+    
+        // 4. ACTUALIZAR PARA EL PRÓXIMO FRAME
         this.lastTickAngle = this.currentAngle;
         return crossed;
     }

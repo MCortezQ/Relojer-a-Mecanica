@@ -1,7 +1,9 @@
 class Hand {
     constructor(type = 'custom') {
+        this.id = Hand.nextId++;
         this.type = type; // 'segundero', 'minutero', 'horario', o 'custom'
         this.shaft = null; // Se llenará cuando se monte en un eje
+        this.name = type.charAt(0).toUpperCase() + type.slice(1);
         
         // Nombre por defecto basado en el tipo
         this.name = type.charAt(0).toUpperCase() + type.slice(1);
@@ -36,3 +38,4 @@ class Hand {
         }
     }
 }
+Hand.nextId = 1;
