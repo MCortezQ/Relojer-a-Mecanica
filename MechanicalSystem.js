@@ -7,11 +7,33 @@ class MechanicalSystem {
         this.belts = [];
         this.carriers = [];
         this.solver = new Solver(this);
+        this.factory = new ComponentFactory(this); 
+        this.interaction = new InteractionManager(this);
+        this.topology = new TopologyManager(this);   
+        this.analysis = new AnalysisTools(this);
+        this.serializer = new ProjectSerializer(this);
+    
+        // NUEVO: Cache de enlaces
+        this.linksCache = [];
+        this.linksDirty = true;
+
+        // NUEVO: Índice espacial
+        this.spatialIndex = null;
+        this.spatialBounds = { x: -2000, y: -2000, w: 4000, h: 4000 };
+        this.rebuildSpatialIndex();
+        // ...      
+      
         this.selectedShaft = null;
         this.draggedShaft = null;
         this.connectionMode = false;
         this.connectionSourceGear = null;
         this.hands = [];
+      
+        // ---> INICIO MOTOR DE HISTORIAL (CTRL+Z) <---
+        this.history = [];
+        this.maxHistory = 10;
+        // ---> FIN MOTOR DE HISTORIAL <---
+      
         // [NUEVO] Estado para conexión de poleas
         this.pulleyConnectionMode = false;
         this.connectionSourcePulley = null;
@@ -39,161 +61,196 @@ class MechanicalSystem {
     }
   
 //************************
-    createShaft(x,y){
-        let shaft = new Shaft(x,y);
-        this.shafts.push(shaft);
-        return shaft;
+//COMPONENTFACTORY.JS (La Fábrica) 
+//************************
+  
+    createShaft(x, y) {let shaft = this.factory.createShaft(x, y); this.afterGeometryChange(); return shaft;}
+
+    createShaftAt(x, y) {     
+        let shaft = this.factory.createShaft(x, y);
+        this.afterGeometryChange(); 
+        return shaft; 
     }
 
-//************************
-    createShaftAt(x, y){
-        let shaft =this.createShaft(x, y);
-        return shaft;    
-    }
+    createGear(teeth, module, name = "", plane = 0) { return this.factory.createGear(teeth, module, name, plane); }
+  
+    createMesh(gearA, gearB) { return this.factory.createMesh(gearA, gearB); }
+  
+    createBelt(driver, driven, crossed = false) { return this.factory.createBelt(driver, driven, crossed); }
+  
+    getNodes() { return this.factory.getNodes(); }  
+  
+    createGuide(x, y, angle = 0) { return this.factory.createGuide(x, y, angle); }  
+  
+    createCarrier(centerShaft, planetShaft) { return this.factory.createCarrier(centerShaft, planetShaft); } 
 
-//************************
-    createGear(teeth, module, name = "",plane=0) {    
-        // [NUEVO] Generar nombre correlativo si viene vacío
-        if (!name) {
-            this.gearCounter++;
-            name = "E" + this.gearCounter;
-        }
-        let gear = new Gear(
-            null,
-            teeth,
-            module,
-            name,
-            plane
-        );
-        this.gears.push(gear);
-        return gear;
-    }
+    findAnnulusFor(planetShaft) { return this.factory.findAnnulusFor(planetShaft); }
 
-//************************
-    createMesh(gearA,gearB){
-        if (gearA.plane !== gearB.plane) {
-        console.error(
-            "Cannot mesh gears on different planes."
-        );
-        return null;
-        }
-      
-        let mesh = new GearMesh(gearA, gearB);
-        this.meshes.push(mesh);
-        this.validateMesh(mesh);
-        return mesh;
-    }
+    createHand(type = 'custom') { return this.factory.createHand(type); }  
+
+    mountHand(hand, shaft) { return this.factory.mountHand(hand, shaft); }  
+  
+    removeHand(hand) { this.factory.removeHand(hand); }
+
+    createPendulum(shaft, length, amplitude, frequency) { return this.factory.createPendulum(shaft, length, amplitude, frequency); }
+
+    createEscapement(pendulumShaft, escapeGear, type = 'swiss') { return this.factory.createEscapement(pendulumShaft, escapeGear, type); }  
+
+    createRack(teeth, module, name = "", plane = 0) { return this.factory.createRack(teeth, module, name, plane); }  
+
+    mountRack(rack, guide) { this.factory.mountRack(rack, guide); }
+
+    createRackPinionMesh(pinion, rack) { return this.factory.createRackPinionMesh(pinion, rack); }
+
+    createAnnulus(teeth, module, name = "") { return this.factory.createAnnulus(teeth, module, name); }
+
+    createInternalMesh(planet, annulus) { return this.factory.createInternalMesh(planet, annulus); }
+
+    createPulley(name, radius, plane = 0) { return this.factory.createPulley(name, radius, plane); }
+
+    mountPulley(pulley, shaft) { return this.factory.mountPulley(pulley, shaft); }
 
 //************************  
-    createBelt(driver, driven, crossed = false) {
-        const belt = new Belt(driver, driven, crossed);
-        this.belts.push(belt);
-        return belt;
-    }
-
+//  TOPOLOGY.JS (El Arquitecto)
 //************************
-    getNodes() {
-        return [...this.shafts, ...this.guides];
-    }
 
-//************************
-    createGuide(x, y, angle = 0) {
-        let guide = new LinearGuide(x, y, angle);
-        this.guides.push(guide);
-        return guide;
-    }
+    restoreMesh(mesh, fixedShaft) { return this.topology.restoreMesh(mesh, fixedShaft); }
 
-//************************
-    createCarrier(centerShaft, planetShaft) {
-        let carrier = new Carrier(this, centerShaft, planetShaft); // Le pasamos 'this' (el sistema)
-        this.carriers.push(carrier);
-        return carrier;
-    }
+    restoreBelt(belt) { return this.topology.restoreBelt(belt); }  
 
-//************************
-    findAnnulusFor(planetShaft) {
-        for(let mesh of this.internalMeshes) {
-            if(mesh.driver.shaft === planetShaft) {
-                return mesh.driven; // Retorna el objeto Annulus
-            }
+    computeTangencyPoints(center1, radius1, center2, radius2, crossed = false) { return this.topology.computeTangencyPoints(center1, radius1, center2, radius2, crossed = false); }
+
+    restoreRackPinion(mesh, fixedNode) { this.topology.restoreRackPinion(mesh, fixedNode); }
+
+    updateGearGeometry(gear) { this.topology.updateGearGeometry(gear); }
+
+    afterGeometryChange() {
+        this.linksDirty = true;
+        this.rebuildSpatialIndex();
+        this.topology.afterGeometryChange();
+        // Chequeo de colisión global: solo advierte en consola, no bloquea ni invalida nada.
+        // Se puede suprimir durante construcciones masivas (ver ProjectSerializer.loadDesign),
+        // donde este método se dispara muchas veces con el modelo a medio construir —
+        // ahí las mallas todavía no existen y se reportarían falsos positivos.
+        if (this.suppressCollisionWarnings) return;
+        let collisions = this.checkGlobalCollisions();
+        for (let c of collisions) {
+            console.warn(`⚠️ Colisión geométrica: "${c.gearA.name || c.gearA.id}" y "${c.gearB.name || c.gearB.id}" se superponen ${c.overlap.toFixed(1)}px (¿planos distintos? revisa la propiedad 'plane' de ambos).`);
         }
-        return null;
     }
+
+    checkGlobalCollisions() { return this.topology.checkGlobalCollisions(); }
+
+    validateMesh(mesh) { return this.topology.validateMesh(mesh); }
+
+    validateAllMeshes() { this.topology.validateAllMeshes(); }
+
+    connectGears(driverGear, drivenGear) { return this.topology.connectGears(driverGear, drivenGear); }
+
+    disconnectComponent(comp) { this.topology.disconnectComponent(comp); }
+
+    removeMesh(mesh) { this.topology.removeMesh(mesh); this.topology.afterGeometryChange(); }  
+  
+    removeGear(gear) { this.topology.removeGear(gear); }
+
+    removePulley(pulley) { this.topology.removePulley(pulley); }
+
+    removeRack(rack) { this.topology.removeRack(rack); }
+
+    removeShaft(shaft) { this.topology.removeShaft(shaft); }
+
+    deleteNodeCompletely(node) { this.topology.deleteNodeCompletely(node); }  
+
 
 //************************
-    // ---> INICIO GESTIÓN DE AGUJAS (HANDS) <---
-    createHand(type = 'custom') {
-        let hand = new Hand(type);
-        this.hands.push(hand);
-        return hand;
-    }
+//InteractionManager.js (El Operador)  
+//************************
 
-    mountHand(hand, shaft) {
-        if (!shaft) {
-            console.warn("Montaje fallido: Se requiere un eje válido.");
-            return;
-        }
-        shaft.addComponent(hand);
-        hand.shaft = shaft; // <--- FORZAMOS que la aguja sepa en qué eje está
-    }
+    selectShaft(shaft) { return this.interaction.selectShaft(shaft); }
 
-    removeHand(hand) {
-        // Desmontar del eje si está montada
-        if (hand.shaft) {
-            let idx = hand.shaft.components.indexOf(hand);
-            if (idx !== -1) hand.shaft.components.splice(idx, 1);
-            hand.shaft = null;
-        }
-        // Eliminar del array global del sistema
-        let globalIdx = this.hands.indexOf(hand);
-        if (globalIdx !== -1) this.hands.splice(globalIdx, 1);
-    }
-    // ---> FIN GESTIÓN DE AGUJAS (HANDS) <---
+    findShaftAt(x, y) { return this.interaction.findShaftAt(x, y); }  
+
+    findShaftsAt(x, y, radius) { return this.interaction.findShaftsAt(x, y, radius); }
+
+    findGuideAt(x, y) { return this.interaction.findGuideAt(x, y); }
+
+    findClosestComponentAt(x, y) { return this.interaction.findClosestComponentAt(x, y); }
+
+    findGearAt(x, y) { return this.interaction.findGearAt(x, y); }  
+
+    findPulleyAt(x, y) { return this.interaction.findPulleyAt(x, y); }
+
+    findRackAt(x, y) { return this.interaction.findRackAt(x, y); }  
+
+    beginDrag(shaft) { this.interaction.beginDrag(shaft); }
+
+    endDrag() { this.interaction.endDrag(); }
+
+    dragTo(x, y) { this.interaction.dragTo(x, y); }
+
+    dragRigidly(x, y) { this.interaction.dragRigidly(x, y); }
+
+    getKinematicData(targetNode) { return this.interaction.getKinematicData(targetNode); }
+
+    tracePath(current, target, currentRatio, visited) { return this.interaction.tracePath(current, target, currentRatio, visited); }
+
+    pushHistory() { this.interaction.pushHistory(); }
+
+    undo() { return this.interaction.undo(); }
+
+//    addBranchFromMotor(teeth = 30, module = null) { return this.interaction.addBranchFromMotor(teeth, module); }
+
   
 
 //************************
-    createPendulum(shaft, length, amplitude, frequency) {
-        let pendulum = new Pendulum(shaft, length || 150, amplitude || PI/6, frequency || 1);
-        this.pendulums.push(pendulum);
-        return pendulum;
+//FUNCIONES DE BÚSQUEDA  
+//************************
+
+    isShaftConnected(shaft){    
+        for(let mesh of this.meshes){
+            if(mesh.driver.shaft === shaft || mesh.driven.shaft === shaft) return true;
+        }
+        return false;
     }
 
+//************************  
+    meshExists(gearA, gearB){
+        for(let mesh of this.meshes){
+            if(mesh.driver === gearA && mesh.driven === gearB){
+                return true;
+            }   
+            if(mesh.driver === gearB && mesh.driven === gearA){
+                return true;
+            }
+        }
+        return false;
+    }  
+
+//************************  
+    isGearMeshed(gear){
+        for(let mesh of this.meshes){
+            if(mesh.driver === gear || mesh.driven === gear){
+                return true;
+            }
+        }
+        return false;
+    }  
+
 //************************
-    updatePendulums(dt) {
+
+//************************
+//VARIOS ANTIGUOS
+//************************  
+
+
+  
+  
+  updatePendulums(dt) {
         for (let p of this.pendulums) {
             p.update(dt);
         }
     }
 
-//************************
-    createEscapement(pendulumShaft, escapeGear) {
-        // 1. Buscar el OBJETO péndulo que usa este eje
-        let pendulumObj = this.pendulums.find(p => p.shaft === pendulumShaft);
-        if (!pendulumObj) {
-            console.error("ERROR: No hay ningún péndulo montado en el eje seleccionado.");
-            return null;
-        }
-
-        // 2. Verificación real en la fuente de la verdad
-        if (!escapeGear || !escapeGear.shaft) {
-            console.error("ERROR: El componente seleccionado no tiene un eje válido.");
-            return null;
-        }
-        
-        // 3. Llamar al constructor con el orden correcto: (péndulo, engranaje, sistema)
-        let escapement = new Escapement(pendulumObj, escapeGear, this);
-        
-        // 4. Añadir al sistema aquí (ya no lo hace el constructor)
-        this.escapements.push(escapement);
-
-        // ---> INICIO ARREGLO <---
-        // Forzar la reconstrucción topológica para que el motor se entere 
-        // de que ahora pertenece a un tren de escape y debe congelarse.
-        this.afterGeometryChange();
-        // ---> FIN ARREGLO <---
-        
-        return escapement;
-    }
 //************************
     updateEscapements(dt) {
         for (let e of this.escapements) {
@@ -226,73 +283,6 @@ class MechanicalSystem {
     }
   
 //************************
-    createRack(teeth, module, name = "", plane = 0) {    
-        // Generar nombre correlativo si viene vacío
-        if (!name) {
-            this.rackCounter++;
-            name = "R" + this.rackCounter;
-        }
-        let rack = new Rack(null, teeth, module, name, plane);
-        this.racks.push(rack);
-        return rack;
-    }
-
-  
-
-//************************
-    mountRack(rack, guide) {
-        if(rack.guide) rack.guide.removeComponent(rack);
-        guide.addComponent(rack);
-    }
-
-//************************
-    createRackPinionMesh(pinion, rack) {
-        let mesh = new RackPinionMesh(pinion, rack);
-        this.rackMeshes.push(mesh);
-        
-        // [NUEVO] Ajustar automáticamente la posición vertical para que engrane
-        this.restoreRackPinion(mesh, pinion.node);
-        
-        this.afterGeometryChange();
-        return mesh;
-    }
-
-//************************
-    createAnnulus(teeth, module, name = "") {
-        if (!name) {
-            // Generamos nombre automático
-            name = "C" + (this.annuli.length + 1); // C de Corona
-        }
-        // Se monta en un eje fijo
-        let shaft = this.createShaft(0, 0);
-        let annulus = new Annulus(shaft, teeth, module, name);
-        this.annuli.push(annulus);
-        shaft.addComponent(annulus);
-        this.afterGeometryChange();
-        return annulus;
-    }
-
-//************************
-    createInternalMesh(planet, annulus) {
-        if (planet.teeth >= annulus.teeth) {
-            console.warn("El planeta debe ser más pequeño que la corona.");
-            return null;
-        }
-        let mesh = new InternalGearMesh(planet, annulus);
-        this.internalMeshes.push(mesh);
-        this.afterGeometryChange();
-        return mesh;
-    }
-  
-//************************
-    removeRack(rack) {
-        this.rackMeshes = this.rackMeshes.filter(m => m.rack !== rack && m.pinion !== rack);
-        if(rack.guide) rack.guide.removeComponent(rack);
-        this.racks = this.racks.filter(r => r !== rack);
-        this.afterGeometryChange();
-    }
-
-//************************
     removeGuide(guide) {
         while(guide.components.length > 0) {
             this.removeRack(guide.components[0]);
@@ -301,10 +291,13 @@ class MechanicalSystem {
     }
 
 //************************
-    // [NUEVO] Abstracción para el Solver (Regla 6)
-    getLinks() {
-        return [...this.meshes, ...this.belts, ...this.rackMeshes, ...this.internalMeshes];
+getLinks() {
+    if (this.linksDirty) {
+        this.linksCache = [...this.meshes, ...this.belts, ...this.rackMeshes, ...this.internalMeshes];
+        this.linksDirty = false;
     }
+    return this.linksCache;
+}
 
 //************************
     // [NUEVO] Búsqueda genérica de componentes (Gear o Pulley)
@@ -323,9 +316,15 @@ class MechanicalSystem {
     }
 
 //************************
-    update(dt) {    
-        // [ELIMINADO] Ya no necesitamos engañar al Solver. 
-        // El nuevo "Muro" del Solver se encarga de frenar la energía.
+    update(dt) {   
+
+          // ✅ Forzar propagación manual si el Solver no funciona
+        let motor = this.shafts.find(s => s.isDriver);
+        if (motor && motor.omega !== 0) {
+            // Limpiar visited
+            for (let s of this.shafts) s.visited = false;
+            this.solver.propagateFrom(motor);
+        }
 
         // 1. El solver calcula velocidades (se frena solo en el escape)
         this.solver.solve(dt);
@@ -365,46 +364,6 @@ class MechanicalSystem {
         return gear;
     }
 
-//************************  
-    removeMesh(mesh){    
-        let index = this.meshes.indexOf(mesh);
-        if(index >= 0){
-            this.meshes.splice(index,1);
-        }
-    }
-
-//************************
-    removeShaft(shaft){
-        // eliminar todos los componentes montados
-        while(shaft.components.length>0){
-            this.removeGear(
-                shaft.components[0]
-            );
-        }
-
-        // ---> INICIO LIMPIEZA DE PÉNDULOS HUÉRFANOS <---
-        // Si eliminamos un eje que tiene un péndulo, el péndulo debe morir también
-        for (let i = this.pendulums.length - 1; i >= 0; i--) {
-            if (this.pendulums[i].shaft === shaft) {
-                // Opcional: Si el péndulo estaba conectado a un escape, limpiamos la referencia
-                for (let esc of this.escapements) {
-                    if (esc.pendulum === this.pendulums[i]) {
-                        // Aquí deberías llamar a la función que ya tienes para destruir escapes
-                        // Normalmente se llama removeEscapement(esc) o similar
-                        this.removeEscapement(esc); 
-                    }
-                }
-                this.pendulums.splice(i, 1); // Eliminamos el péndulo del array global
-            }
-        }
-        // ---> FIN LIMPIEZA DE PÉNDULOS HUÉRFANOS <---
-      
-        let index =
-            this.shafts.indexOf(shaft);
-        if(index>=0){
-            this.shafts.splice(index,1);
-        }
-    }
 
 //************************  
     validate() {
@@ -499,133 +458,12 @@ class MechanicalSystem {
         }
     
         // Registrar el engranaje en el eje.
-        shaft.addComponent(gear);    
-    }
-
-//************************  
-    selectShaft(shaft){
-        if (this.selectedShaft === shaft)
-            return;
-        if (this.selectedShaft){
-            this.selectedShaft.selected = false;
-        }
-        this.selectedShaft = shaft;
-        if (shaft){
-            shaft.selected = true;
-        }    
-    }
-
-//************************    
-    findShaftAt(x, y){
-        const PICK_RADIUS = 8;
-        for(let shaft of this.shafts){
-            if(dist(x,y,shaft.x,shaft.y) <= PICK_RADIUS){
-                return shaft;
-            }
-        }
-        return null;
-    }
-
-//************************ 
-
-    // ---> INICIO BÚSQUEDA COAXIAL <---
-    // Devuelve un ARRAY con todos los ejes que estén dentro del radio de clic
-    findShaftsAt(x, y, radius = 12) {
-        let found = [];
-        for (let s of this.shafts) {
-            if (dist(x, y, s.x, s.y) < radius) {
-                found.push(s);
-            }
-        }
-        return found;
-    }
-    // ---> FIN BÚSQUEDA COAXIAL <---
-
-//**************************  
-  
-    findGuideAt(x, y){
-        const PICK_RADIUS = 15; // Un poco más generoso para facilitar la selección
-        for(let guide of this.guides){
-            // Clic cerca del origen de la guía
-            if(dist(x, y, guide.x, guide.y) <= PICK_RADIUS){
-                return guide;
-            }
-        }
-        return null;
-    } 
-
-  
-//************************    
-    beginDrag(shaft){
-    this.draggedShaft = shaft;
-    }
-
-//************************    
-    endDrag(){
-        this.draggedShaft = null;
-    }
-
-//************************    
-    dragTo(x, y){
-        if(!this.draggedShaft){
-            return;
-        }
-        this.draggedShaft.x = x;
-        this.draggedShaft.y = y;
+        shaft.addComponent(gear);
         this.afterGeometryChange();
     }
-  
-//************************  
-    restoreMesh(mesh, fixedShaft){
-        let driverGear = mesh.driver;
-        let drivenGear = mesh.driven;
-        let driverShaft = driverGear.shaft;
-        let drivenShaft = drivenGear.shaft;
-        let targetDistance = driverGear.radius + drivenGear.radius;
-        
-        let dx = drivenShaft.x - driverShaft.x;
-        let dy = drivenShaft.y - driverShaft.y;
-        let d = Math.sqrt(dx*dx + dy*dy);
-        
-        // Si están exactamente superpuestos, asumir ángulo 0 (hacia la derecha)
-        if(d < 0.0001){
-            dx = 1; 
-            dy = 0; 
-            d = 1;
-        }
-        
-        // Normalizar el vector director (para mantener el ángulo actual)
-        let dirX = dx / d;
-        let dirY = dy / d;
-        
-        if(fixedShaft === driverShaft){
-            // Mover el driven a la distancia correcta, respetando el ángulo
-            drivenShaft.x = driverShaft.x + dirX * targetDistance;
-            drivenShaft.y = driverShaft.y + dirY * targetDistance;
-        }
-        else if(fixedShaft === drivenShaft){
-            // Mover el driver a la distancia correcta (dirección invertida)
-            driverShaft.x = drivenShaft.x - dirX * targetDistance;
-            driverShaft.y = drivenShaft.y - dirY * targetDistance;
-        }
-    }
 
-//************************  
-    restoreRackPinion(mesh, fixedNode) {
-        let pinion = mesh.pinion;
-        let rack = mesh.rack;
-        
-        // Asumiendo guía horizontal (angle = 0)
-        if (fixedNode === pinion.node) {
-            // Fijamos el piñón, movemos la guía de la cremallera
-            rack.node.x = pinion.x; // [NUEVO] Alineación horizontal forzada
-            rack.node.y = pinion.y + pinion.pitchRadius; // Alineación vertical (debajo)
-        } else if (fixedNode === rack.node) {
-            // Fijamos la guía, movemos el eje del piñón
-            pinion.node.x = rack.node.x; // [NUEVO] Alineación horizontal forzada
-            pinion.node.y = rack.node.y - pinion.pitchRadius;
-        }
-    }
+ 
+
 
 //************************  
     updateGearTeeth(gear, teeth){
@@ -633,6 +471,7 @@ class MechanicalSystem {
         gear.teeth = teeth;
         this.updateGearGeometry(gear);
         this.afterGeometryChange();
+        if (window.renderer) renderer.invalidateCache();
     }
 
 //************************  
@@ -656,200 +495,7 @@ class MechanicalSystem {
         gear.module = module;
         this.updateGearGeometry(gear);
         this.afterGeometryChange();
-    }
-
-//************************    
-      updateGearGeometry(gear){
-        gear.updateGeometry();
-        for(let mesh of this.meshes){
-            if(mesh.driver === gear){
-                this.restoreMesh(mesh, gear.shaft);
-            }
-            else if(mesh.driven === gear){
-                this.restoreMesh(mesh,mesh.driver.shaft);
-            }
-        }
-    }
-
-//************************    
-    validateMesh(mesh){
-        //--------------------------------------------------
-        // Estado inicial
-        //--------------------------------------------------
-        mesh.isValid = true;
-    
-        //--------------------------------------------------
-        // Deben pertenecer al mismo plano
-        //--------------------------------------------------
-        if(mesh.driver.plane !== mesh.driven.plane){
-            mesh.isValid = false;
-            return false;
-        }
-    
-        //--------------------------------------------------
-        // Distancia entre ejes
-        //--------------------------------------------------
-        let dx = mesh.driver.x - mesh.driven.x;
-        let dy = mesh.driver.y - mesh.driven.y;
-        let distance = Math.hypot(dx, dy);
-    
-        //--------------------------------------------------
-        // Los cuerpos no pueden interpenetrarse
-        //--------------------------------------------------
-        let minDistance =
-            mesh.driver.rootRadius +
-            mesh.driven.rootRadius;
-    
-        if(distance < minDistance){
-            mesh.isValid = false;
-            return false;
-        }
-    
-        //--------------------------------------------------
-        // Aquí irán futuras validaciones:
-        //
-        // - módulo
-        // - ángulo de presión
-        // - interferencia de dientes
-        // - etc.
-        //--------------------------------------------------
-    
-        return true;
-    }
-
-//************************    
-    validateAllMeshes(){
-        for(let mesh of this.meshes){
-            this.validateMesh(mesh);
-        }
-    }
-
-//************************    
-    afterGeometryChange(){
-        //--------------------------------------------------
-        // [NUEVO] Restaurar geometría de correas
-        //--------------------------------------------------
-        for (let belt of this.belts) {
-            this.restoreBelt(belt);
-        }
-
-        //--------------------------------------------------
-        // Validar engranajes
-        //--------------------------------------------------
-        this.validateAllMeshes();
-
-        // ---> INICIO ACTUALIZACIÓN DEL ESCAPE <---
-        // Si el escape existe, reconstruimos su lista de ejes porque
-        // el usuario acaba de conectar o desconectar algo.
-        if (this.escapements.length > 0) {
-            for (let esc of this.escapements) {
-                esc.rebuildConnectedTrain();
-                // Re-congelar los ejes tras el cambio
-                for (let shaft of esc.connectedShafts) {
-                    shaft.lockedByEscapement = true;
-                }
-            }
-        }
-        // ---> FIN ACTUALIZACIÓN DEL ESCAPE <---
-    }
-
-//************************  
-    addGearToShaft(shaft, teeth = 20, module = 5, name = ""){
-        let gear = this.createGear(teeth, module, name);
-        this.mountGear(gear, shaft);
-        this.afterGeometryChange();
-        return gear;
-    }
-
-//************************    
-    removeGear(gear){
-        //----------------------------------
-        // Eliminar todos los engranamientos
-        //----------------------------------
-        this.meshes =
-            this.meshes.filter(mesh =>
-                mesh.driver !== gear &&
-                mesh.driven !== gear
-            );
-    
-        //----------------------------------
-        // Desmontar del eje
-        //----------------------------------
-        if(gear.shaft) gear.shaft.removeComponent(gear);
-    
-        //----------------------------------
-        // Eliminar del sistema
-        //----------------------------------
-        this.gears =
-            this.gears.filter(g => g !== gear);
-        
-        //----------------------------------
-        // Actualizar el sistema
-        //----------------------------------
-        this.afterGeometryChange();
-    }
-
-//************************    
-    disconnectComponent(comp) {
-        if (comp instanceof Gear) {
-            // Desconectar Engranajes externos
-            this.meshes = this.meshes.filter(m => m.driver !== comp && m.driven !== comp);
-            // Desconectar Engranajes internos (Corona)
-            this.internalMeshes = this.internalMeshes.filter(m => m.driver !== comp && m.driven !== comp);
-            
-            // ---> INICIO LIMPIEZA SEGURA DE ESCAPE <---
-            // Encontrar todos los escapes que usan este engranaje
-            let affectedEscapes = this.escapements.filter(e => e.escapeGear === comp);
-            for (let esc of affectedEscapes) {
-                // Desbloquear la cadena completa antes de borrar el escape
-                if (esc.connectedShafts) {
-                    for (let s of esc.connectedShafts) {
-                        s.lockedByEscapement = false;
-                    }
-                }
-            }
-            // Ahora sí, limpiarlos del array
-            this.escapements = this.escapements.filter(e => e.escapeGear !== comp);
-            // ---> FIN LIMPIEZA SEGURA DE ESCAPE <---
-        }
-        else if (comp instanceof Pulley) {
-            // Desconectar Correas
-            this.belts = this.belts.filter(b => b.driver !== comp && b.driven !== comp);
-        } 
-        else if (comp instanceof Rack) {
-            // Desconectar Cremalleras
-            this.rackMeshes = this.rackMeshes.filter(m => m.rack !== comp && m.pinion !== comp);
-        }
-        
-        this.afterGeometryChange();
-    }  
-
-//************************    
-    removePulley(pulley){
-        //----------------------------------
-        // Eliminar todas las correas conectadas
-        //----------------------------------
-        this.belts =
-            this.belts.filter(belt =>
-                belt.driver !== pulley &&
-                belt.driven !== pulley
-            );
-    
-        //----------------------------------
-        // Desmontar del eje (Shaft.removeComponent ya es genérico)
-        //----------------------------------
-        if(pulley.shaft) pulley.shaft.removeComponent(pulley);
-    
-        //----------------------------------
-        // Eliminar del sistema
-        //----------------------------------
-        this.pulleys =
-            this.pulleys.filter(p => p !== pulley);
-        
-        //----------------------------------
-        // Actualizar el sistema
-        //----------------------------------
-        this.afterGeometryChange();
+        if (window.renderer) renderer.invalidateCache();
     }
   
 //************************    
@@ -864,142 +510,9 @@ class MechanicalSystem {
         this.connectionSourceGear = null;
     }
 
-//************************    
-    findGearAt(x, y){
-        for(let gear of this.gears){         
-            if(dist(x, y, gear.x, gear.y) <= gear.outsideRadius){
-                return gear;
-            }
-        }
-        return null;
-    }
 
-//************************    
-    findPulleyAt(x, y){
-        for(let pulley of this.pulleys){         
-            if(dist(x, y, pulley.x, pulley.y) <= pulley.radius){
-                return pulley;
-            }
-        }
-        return null;
-    }  
-
-//************************  
-    connectGears(driverGear, drivenGear){
-        if(driverGear === drivenGear) return null;
-        if(driverGear.shaft === drivenGear.shaft) return null;
-        
-        if(this.meshExists(driverGear, drivenGear)){
-            console.warn("Estos engranajes ya están conectados.");
-            return null;
-        }
-      
-        let driverShaft = driverGear.shaft;
-        let drivenShaft = drivenGear.shaft;
-
-        let driverConnected = this.isShaftConnected(driverShaft);
-        let drivenConnected = this.isShaftConnected(drivenShaft);
-
-        if(driverConnected && drivenConnected){
-            console.warn("Ambos ejes ya pertenecen a un mecanismo.");
-            return null;
-        }
-       
-        let needSwap = false;
-
-        // 1. El eje motor NUNCA debe ser movido. 
-        if (drivenShaft.isDriver) {
-            needSwap = true;
-        } 
-        // 2. Si no hay motores, mover la pieza suelta antes que el mecanismo
-        else if (!driverShaft.isDriver && !driverConnected && drivenConnected) {
-            needSwap = true;
-        }
-
-        if (needSwap) {
-            let tempGear = driverGear;
-            driverGear = drivenGear;
-            drivenGear = tempGear;
-            driverShaft = driverGear.shaft;
-            drivenShaft = drivenGear.shaft;
-        }
-      
-        let targetDistance = driverGear.pitchRadius + drivenGear.pitchRadius;
-        let dx = drivenShaft.x - driverShaft.x;
-        let dy = drivenShaft.y - driverShaft.y;
-        let d = Math.sqrt(dx*dx + dy*dy);
-    
-        if(d < 0.0001){
-            dx = 1; dy = 0; d = 1;
-        }
-    
-        dx /= d;
-        dy /= d;
-    
-        drivenShaft.x = driverShaft.x + dx * targetDistance;
-        drivenShaft.y = driverShaft.y + dy * targetDistance;
-    
-        let mesh = this.createMesh(driverGear, drivenGear);
-        this.afterGeometryChange();
-        return mesh;      
-    
-    }
 //************************ 
-    isShaftConnected(shaft){    
-        for(let mesh of this.meshes){
-            if(mesh.driver.shaft === shaft || mesh.driven.shaft === shaft) return true;
-        }
-        return false;
-    }
-
-//************************  
-    meshExists(gearA, gearB){
-        for(let mesh of this.meshes){
-            if(mesh.driver === gearA && mesh.driven === gearB){
-                return true;
-            }   
-            if(mesh.driver === gearB && mesh.driven === gearA){
-                return true;
-            }
-        }
-        return false;
-    }  
-
-//************************  
-    isGearMeshed(gear){
-        for(let mesh of this.meshes){
-            if(mesh.driver === gear || mesh.driven === gear){
-                return true;
-            }
-        }
-        return false;
-    }  
-
-//************************
-    createPulley(name, radius, plane = 0) {
-        // [NUEVO] Generar nombre correlativo si viene vacío
-        if (!name) {
-            this.pulleyCounter++;
-            name = "P" + this.pulleyCounter;
-        }
-        const pulley = new Pulley(name, radius, plane);
-        this.pulleys.push(pulley);
-        return pulley;
-    }
-
-//************************
-    mountPulley(pulley, shaft) {
-        if (!pulley) {
-            return;
-        }
-        if (!shaft) {
-            return;
-        }
-        shaft.addComponent(pulley);
-        return pulley;
-    }
-
-//************************  
+  
     connectPulleys(driver, driven, crossed = false) {
         if (!driver || !driven) return null;
         if (driver === driven) return null;
@@ -1012,77 +525,7 @@ class MechanicalSystem {
         return belt;
     }
 
-//************************    
-    restoreBelt(belt) {
-        belt.clearGeometry();
-        const driver = belt.driver;
-        const driven = belt.driven;
-        if (!driver || !driven) return false;
-        if (!driver.shaft || !driven.shaft) return false;
-        const center1 = {x: driver.x, y: driver.y};
-        const center2 = {x: driven.x, y: driven.y};
-    
-        belt.centerDistance = Math.hypot(
-            center2.x - center1.x,
-            center2.y - center1.y
-        );
-    
-        const tangency = this.computeTangencyPoints(
-            center1,
-            driver.radius,
-            center2,
-            driven.radius,
-            belt.crossed
-        );
-    
-        if (!tangency) return false;
-    
-        belt.driverEntry = tangency.driverEntry;
-        belt.driverExit = tangency.driverExit;
-        belt.drivenEntry = tangency.drivenEntry;
-        belt.drivenExit = tangency.drivenExit;
-    
-        return true;
-    } 
 
-//************************      
-    computeTangencyPoints(center1, radius1, center2, radius2, crossed = false) {
-        const dx = center2.x - center1.x;
-        const dy = center2.y - center1.y;
-        const d = Math.hypot(dx, dy);
-        if (d === 0) return null;
-    
-        const r = crossed ? radius1 + radius2 : radius1 - radius2;    
-        if (Math.abs(r) > d) return null;
-
-        const vx = dx / d;
-        const vy = dy / d;
-        const a = r / d;
-        const h = Math.sqrt(1 - a * a);
-        const nx1 = a * vx - h * vy;
-        const ny1 = a * vy + h * vx;
-        const nx2 = a * vx + h * vy;
-        const ny2 = a * vy - h * vx;
-    
-        return {
-            driverEntry: {
-                x: center1.x + radius1 * nx1,
-                y: center1.y + radius1 * ny1
-            },
-            drivenEntry: {
-                x: center2.x + (crossed ? -radius2 : radius2) * nx1,
-                y: center2.y + (crossed ? -radius2 : radius2) * ny1
-            },
-            driverExit: {
-                x: center1.x + radius1 * nx2,
-                y: center1.y + radius1 * ny2
-            },
-            drivenExit: {
-                x: center2.x + (crossed ? -radius2 : radius2) * nx2,
-                y: center2.y + (crossed ? -radius2 : radius2) * ny2
-            }
-        };
-    }  
 
 //************************    
     beginPulleyConnection(pulley){
@@ -1102,28 +545,6 @@ class MechanicalSystem {
         this.connectionSourcePinion = null;
     }
 
-//************************    
-    findRackAt(x, y){
-        for(let rack of this.racks){         
-            // Calculamos el centro de la barra de la cremallera
-            let cx = rack.x + (rack.length / 2);
-            let cy = rack.y;
-            
-            // Comprobamos si el clic cayó dentro de un área generosa alrededor de la barra
-            let dx = Math.abs(x - cx);
-            let dy = Math.abs(y - cy);
-            
-            // Mitad de la longitud + un pequeño margen de 10px a los lados
-            let halfLength = (rack.length / 2) + 10; 
-            // El doble del grosor para que sea fácil hacer clic
-            let heightMargin = rack.thickness * 2.5; 
-
-            if(dx <= halfLength && dy <= heightMargin){
-                return rack;
-            }
-        }
-        return null;
-    }
 
 //************************    
     endPulleyConnection(){
@@ -1131,77 +552,13 @@ class MechanicalSystem {
         this.connectionSourcePulley = null;
     }
 
-//************************    
-    dragRigidly(x, y){
-        if(!this.draggedShaft) return;
-        
-        // Calcular cuánto se desplazó el mouse desde la última posición
-        let dx = x - this.draggedShaft.x;
-        let dy = y - this.draggedShaft.y;
-        
-        // Mover el eje principal
-        this.draggedShaft.x = x;
-        this.draggedShaft.y = y;
-        
-        // Búsqueda en el grafo para mover los ejes conectados
-        let visited = new Set([this.draggedShaft]);
-        let queue = [this.draggedShaft];
-        
-        while(queue.length > 0) {
-            let current = queue.shift();
-            let links = this.getLinks(); // Obtiene meshes y belts indistintamente
-            
-            for(let link of links) {
-                let other = null;
-                if(link.driver.shaft === current) other = link.driven.shaft;
-                else if(link.driven.shaft === current) other = link.driver.shaft;
-                
-                if(other && !visited.has(other)) {
-                    // Trasladar el eje conectado la misma distancia
-                    other.x += dx;
-                    other.y += dy;
-                    visited.add(other);
-                    queue.push(other);
-                }
-            }
-        }
-        
-        this.afterGeometryChange();
-    }  
-
-//************************    
-    findClosestComponentAt(x, y){
-        let closest = null;
-        let minDist = Infinity;
-
-        for(let gear of this.gears){         
-            // Calculamos la distancia desde el mouse hasta el borde del engranaje
-            let distToCenter = dist(x, y, gear.x, gear.y);
-            let distToEdge = Math.abs(distToCenter - gear.outsideRadius);
-            
-            if (distToEdge < minDist) {
-                minDist = distToEdge;
-                closest = gear;
-            }
-        }
-
-        for(let pulley of this.pulleys){         
-            let distToEdge = Math.abs(dist(x, y, pulley.x, pulley.y) - pulley.radius);
-            if (distToEdge < minDist) {
-                minDist = distToEdge;
-                closest = pulley;
-            }
-        }
-        
-        return closest;
-    }
 
   //************************    
     removePendulum(shaft) {
         let index = this.pendulums.findIndex(p => p.shaft === shaft);
         if (index >= 0) {
             this.pendulums.splice(index, 1);
-            shaft.lockedByCarrier = false; // Liberar el eje
+            if (shaft.lockOwner === 'pendulum') shaft.lockOwner = null; // Liberar el eje
             this.afterGeometryChange();
         }
     }
@@ -1247,43 +604,29 @@ class MechanicalSystem {
             this.afterGeometryChange();
         }
     }
-//************************    
-    deleteNodeCompletely(node) {
-        // 1. Limpiar restricciones especiales si las tiene
-        this.removePendulum(node);
-        this.removeCarrier(node);
-        this.removeEscapement(node);
+//************************
 
-        // ---> INICIO LIMPIEZA DE ESFERA FANTASMA <---
- //       if (node === this.minuteHandShaft) this.minuteHandShaft = null;
-        if (node === this.hourHandShaft) this.hourHandShaft = null;
-        // ---> FIN LIMPIEZA DE ESFERA FANTASMA <---
-
-        // 2. Eliminar todos los componentes montados (y sus mallas)
-        while(node.components.length > 0) {
-            let comp = node.components[0];
-            if (comp instanceof Gear) this.removeGear(comp);
-            else if (comp instanceof Pulley) this.removePulley(comp);
-            else if (comp instanceof Rack) this.removeRack(comp);
-            else if (comp instanceof Annulus) {
-                // Eliminar mallas internas
-                this.internalMeshes = this.internalMeshes.filter(m => m.driver !== comp && m.driven !== comp);
-                node.removeComponent(comp);
-                this.annuli = this.annuli.filter(a => a !== comp);
+removeEscapementByPendulum(pendulumShaft) {
+    let index = this.escapements.findIndex(e => e.pendulum.shaft === pendulumShaft);
+    if (index >= 0) {
+        let esc = this.escapements[index];
+        // Desbloquear ejes
+        if (esc.connectedShafts) {
+            for (let s of esc.connectedShafts) {
+                s.lockedByEscapement = false;
             }
         }
-
-        // 3. Eliminar el eje o guía en sí
-        if (node instanceof Shaft) {
-            this.shafts = this.shafts.filter(s => s !== node);
-        } else if (node instanceof LinearGuide) {
-            this.guides = this.guides.filter(g => g !== node);
-        }
-        
+        this.escapements.splice(index, 1);
         this.afterGeometryChange();
+        console.log("✅ Escape eliminado del péndulo en Eje " + pendulumShaft.id);
+        return true;
     }
+    console.warn("⚠️ No se encontró escape para el péndulo en Eje " + pendulumShaft.id);
+    return false;
+}  
 
-    //************************
+  
+//************************
     addMinuteHandTrain(escapeGear) {
         // Reducción total necesaria para 2 ticks/seg: 1/120
         // Etapa 1: Escape (30d) -> Rueda Intermedia (120d) => Ratio 30/120 = 1/4
@@ -1317,8 +660,15 @@ class MechanicalSystem {
         return hourGear;
     }
 
+  addGearToShaft(shaft, teeth = 20, module = 5, name = "") {
+    let gear = this.createGear(teeth, module, name, shaft.plane);
+    this.mountGear(gear, shaft);
+    this.afterGeometryChange();
+    return gear;
+}
+
     //************************
-    addBranchFromMotor(teeth = 30, module = null) {
+  addBranchFromMotor(teeth = 30, module = null) {
         // 1. Buscar el engranaje del motor
         let motorGear = null;
         let motorShaft = null;
@@ -1355,240 +705,303 @@ class MechanicalSystem {
     }
 
     //************************
-    saveClockToJSON() {
-        // ---> INICIO REPARACIÓN DE IDs VIEJOS <---
-        // Si los objetos fueron creados antes de añadir la propiedad 'id', se la forzamos ahora
-        this.shafts.forEach((s, i) => { if (!s.id) s.id = 10000 + i; });
-        this.gears.forEach((g, i) => { if (!g.id) g.id = 20000 + i; });
-        this.pendulums.forEach((p, i) => { if (!p.id) p.id = 30000 + i; });
-        // ---> FIN REPARACIÓN DE IDs VIEJOS <---
-
-        let data = {
-            shafts: [],
-            gears: [],
-            meshes: [],
-            pendulums: [],
-            escapements: [],
-            hands: [],
-            totalTicks: this.totalTicks
-        };
-
-        // 1. Guardar ejes
-        for (let s of this.shafts) {
-            data.shafts.push({ id: s.id, x: s.x, y: s.y, angle: s.angle, omega: s.omega, isDriver: s.isDriver });
-        }
-
-        // 2. Guardar engranajes
-        for (let g of this.gears) {
-            if (!g.shaft) continue;
-            data.gears.push({ id: g.id, shaftId: g.shaft.id, teeth: g.teeth, module: g.module, name: g.name, plane: g.plane });
-        }
-
-        // 3. Guardar mallas
-        for (let m of this.meshes) {
-            data.meshes.push({ driverId: m.driver.id, drivenId: m.driven.id });
-        }
-
-        // 4. Guardar péndulos
-        for (let p of this.pendulums) {
-            data.pendulums.push({ id: p.id, shaftId: p.shaft.id, length: p.length, amplitude: p.amplitude, frequency: p.frequency });
-        }
-
-        // 5. Guardar escapes
-        for (let e of this.escapements) {
-            data.escapements.push({ pendulumId: e.pendulum.id, escapeGearId: e.escapeGear.id });
-        }
-          // 6. Guardar agujas (Hands)
-        for (let h of this.hands) {
-            if (!h.shaft) continue; // No guardar agujas flotantes
-            data.hands.push({
-                shaftId: h.shaft.id,
-                type: h.type,
-                color: h.color,
-                strokeW: h.strokeW,
-                length: h.length,
-                tailLength: h.tailLength
-            });
-        }
-
-        return JSON.stringify(data, null, 2);
-    }
+        saveProject(projectName = "Mi Reloj") { return this.serializer.save(projectName); }
 
     //************************
-    loadClockFromJSON(jsonStr) {
-        let data = JSON.parse(jsonStr);
+loadProject(jsonStr) { return this.serializer.load(jsonStr); }
+
+repairLegacyFormat(oldData) { return this.serializer.repairLegacyFormat(oldData); }
+
+restoreSession(session) { return this.serializer.restoreSession(session); }
+
+loadDesign(design) { return this.serializer.loadDesign(design); }
+//************************
+
+    validateJSONIntegrity(data) {
+        let errors = [];
+        let shaftIds = new Set(data.shafts.map(s => s.id));
+        let gearIds = new Set(data.gears.map(g => g.id));
+        let pendulumIds = new Set(data.pendulums.map(p => p.id));
         
-        // LIMPIAR SISTEMA ACTUAL (Menos malo reconstruir que intentar sincronizar)
-        while(this.shafts.length > 0) this.deleteNodeCompletely(this.shafts[0]);
-        
-        // Mapas para buscar rápidamente por ID durante la reconstrucción
-        let shaftMap = {};
-        let gearMap = {};
-        let pendulumMap = {};
-
-        // 1. Reconstruir Ejes
-        for (let sData of data.shafts) {
-            let s = this.createShaft(sData.x, sData.y);
-            s.id = sData.id;
-            s.angle = sData.angle || 0;
-            s.omega = sData.omega || 0;
-            s.isDriver = sData.isDriver || false;
-            shaftMap[sData.id] = s;
-            Shaft.nextId = Math.max(Shaft.nextId, sData.id + 1);
-        }
-
-        // 2. Reconstruir Engranajes y montarlos
-        for (let gData of data.gears) {
-            let g = new Gear(null, gData.teeth, gData.module, gData.name, gData.plane);
-            g.id = gData.id;
-            this.gears.push(g);
-            this.mountGear(g, shaftMap[gData.shaftId]);
-            gearMap[gData.id] = g;
-            Gear.nextId = Math.max(Gear.nextId, gData.id + 1);
-        }
-
-        // 3. Reconstruir Mallas
-        for (let mData of data.meshes) {
-            let driver = gearMap[mData.driverId];
-            let driven = gearMap[mData.drivenId];
-            if (driver && driven) this.createMesh(driver, driven);
-        }
-
-        // 4. Reconstruir Péndulos
-        for (let pData of data.pendulums) {
-            let p = new Pendulum(shaftMap[pData.shaftId], pData.length, pData.amplitude, pData.frequency);
-            p.id = pData.id;
-            this.pendulums.push(p);
-            pendulumMap[pData.id] = p;
-            Pendulum.nextId = Math.max(Pendulum.nextId, pData.id + 1);
-        }
-
-        // 5. Reconstruir Escapes (Al final, para que encuentre los componentes)
-        for (let eData of data.escapements) {
-            let p = pendulumMap[eData.pendulumId];
-            let g = gearMap[eData.escapeGearId];
-            if (p && g) this.createEscapement(p.shaft, g);
-        }
-
-              // 6. Reconstruir Agujas
-        if (data.hands) {
-            for (let hData of data.hands) {
-                let h = new Hand(hData.type);
-                // Restaurar propiedades visuales guardadas
-                h.color = hData.color;
-                h.strokeW = hData.strokeW;
-                h.length = hData.length;
-                h.tailLength = hData.tailLength;
-                
-                this.hands.push(h); // Añadir al sistema
-                this.mountHand(h, shaftMap[hData.shaftId]); // Montar en su eje correspondiente
+        // Verificar referencias de engranajes a ejes
+        for (let g of data.gears) {
+            if (!shaftIds.has(g.shaftId)) {
+                errors.push(`Engranaje ${g.id} (${g.name}) referencia a eje inexistente ${g.shaftId}`);
             }
         }
-      
-        // Restaurar el tiempo
-        this.totalTicks = data.totalTicks || 0;
-
-        this.afterGeometryChange();
-    }
-//************************
-// ---> INICIO ANALIZADOR CINEMÁTICO <---
-    //************************
-    getKinematicData(targetNode) {
-        // 1. Buscar el motor
-        let startNode = null;
-        let visitedSearch = new Set();
-        let queue = [targetNode];
-        visitedSearch.add(targetNode);
         
-        while(queue.length > 0) {
+        // Verificar referencias de mallas
+        for (let m of data.meshes) {
+            if (!gearIds.has(m.driverId)) {
+                errors.push(`Malla referencia driver ${m.driverId} inexistente`);
+            }
+            if (!gearIds.has(m.drivenId)) {
+                errors.push(`Malla referencia driven ${m.drivenId} inexistente`);
+            }
+        }
+        
+        // Verificar referencias de péndulos a ejes
+        for (let p of data.pendulums) {
+            if (!shaftIds.has(p.shaftId)) {
+                errors.push(`Péndulo ${p.id} referencia a eje inexistente ${p.shaftId}`);
+            }
+        }
+        
+        // Verificar referencias de escapes
+        for (let e of data.escapements) {
+            if (!pendulumIds.has(e.pendulumId)) {
+                errors.push(`Escape referencia a péndulo ${e.pendulumId} inexistente`);
+            }
+            if (!gearIds.has(e.escapeGearId)) {
+                errors.push(`Escape referencia a engranaje ${e.escapeGearId} inexistente`);
+            }
+        }
+        
+        // Verificar referencias de agujas a ejes
+        if (data.hands) {
+            for (let h of data.hands) {
+                if (!shaftIds.has(h.shaftId)) {
+                    errors.push(`Aguja referencia a eje ${h.shaftId} inexistente`);
+                }
+            }
+        }
+        
+        return { ok: errors.length === 0, errors: errors };
+    }  
+
+//***********
+
+    repairJSON(data) {
+        let shaftIds = new Set(data.shafts.map(s => s.id));
+        let gearIds = new Set(data.gears.map(g => g.id));
+        let pendulumIds = new Set(data.pendulums.map(p => p.id));
+        
+        // 1. Eliminar engranajes sin eje
+        let removedGears = 0;
+        data.gears = data.gears.filter(g => {
+            if (!shaftIds.has(g.shaftId)) {
+                removedGears++;
+                return false;
+            }
+            return true;
+        });
+        if (removedGears > 0) console.log(`   Eliminados ${removedGears} engranajes sin eje`);
+        
+        // Actualizar lista de IDs de engranajes después de la limpieza
+        gearIds = new Set(data.gears.map(g => g.id));
+        
+        // 2. Eliminar mallas con referencias rotas
+        let removedMeshes = 0;
+        data.meshes = data.meshes.filter(m => {
+            if (!gearIds.has(m.driverId) || !gearIds.has(m.drivenId)) {
+                removedMeshes++;
+                return false;
+            }
+            return true;
+        });
+        if (removedMeshes > 0) console.log(`   Eliminadas ${removedMeshes} mallas rotas`);
+        
+        // 3. Eliminar péndulos sin eje
+        let removedPendulums = 0;
+        data.pendulums = data.pendulums.filter(p => {
+            if (!shaftIds.has(p.shaftId)) {
+                removedPendulums++;
+                return false;
+            }
+            return true;
+        });
+        if (removedPendulums > 0) console.log(`   Eliminados ${removedPendulums} péndulos sin eje`);
+        
+        // Actualizar lista de IDs de péndulos
+        pendulumIds = new Set(data.pendulums.map(p => p.id));
+        
+        // 4. Eliminar escapes con referencias rotas
+        let removedEscapes = 0;
+        data.escapements = data.escapements.filter(e => {
+            if (!pendulumIds.has(e.pendulumId) || !gearIds.has(e.escapeGearId)) {
+                removedEscapes++;
+                return false;
+            }
+            return true;
+        });
+        if (removedEscapes > 0) console.log(`   Eliminados ${removedEscapes} escapes rotos`);
+        
+        // 5. Eliminar agujas sin eje
+        if (data.hands) {
+            let removedHands = 0;
+            data.hands = data.hands.filter(h => {
+                if (!shaftIds.has(h.shaftId)) {
+                    removedHands++;
+                    return false;
+                }
+                return true;
+            });
+            if (removedHands > 0) console.log(`   Eliminadas ${removedHands} agujas sin eje`);
+        }
+        
+        return data;
+    }  
+
+//**********************
+  
+    rebuildSpatialIndex() {
+        // Calcular límites reales basados en los ejes
+        if (this.shafts.length === 0) {
+            this.spatialBounds = { x: -1000, y: -1000, w: 2000, h: 2000 };
+        } else {
+            let minX = Infinity, maxX = -Infinity;
+            let minY = Infinity, maxY = -Infinity;
+            
+            for (let s of this.shafts) {
+                if (s.x < minX) minX = s.x;
+                if (s.x > maxX) maxX = s.x;
+                if (s.y < minY) minY = s.y;
+                if (s.y > maxY) maxY = s.y;
+            }
+            
+            let padding = 200;
+            this.spatialBounds = {
+                x: minX - padding,
+                y: minY - padding,
+                w: (maxX - minX) + padding * 2,
+                h: (maxY - minY) + padding * 2
+            };
+        }
+        
+        this.spatialIndex = new Quadtree(this.spatialBounds, 8);
+        
+        // Insertar todos los ejes
+        for (let shaft of this.shafts) {
+            this.spatialIndex.insert({ x: shaft.x, y: shaft.y, data: shaft, type: 'shaft' });
+        }
+        
+        // Insertar todos los engranajes
+        for (let gear of this.gears) {
+            if (gear.shaft) {
+                this.spatialIndex.insert({ x: gear.x, y: gear.y, data: gear, type: 'gear' });
+            }
+        }
+        
+        // Insertar todas las poleas
+        for (let pulley of this.pulleys) {
+            if (pulley.shaft) {
+                this.spatialIndex.insert({ x: pulley.x, y: pulley.y, data: pulley, type: 'pulley' });
+            }
+        }
+    }
+    
+    forkliftSubgraph(sourceShaft, offsetX = 200, offsetY = 100) {
+        // 1. Identificar todos los ejes conectados a sourceShaft
+        let connectedShafts = [];
+        let visited = new Set();
+        let queue = [sourceShaft];
+        visited.add(sourceShaft);
+        
+        while (queue.length > 0) {
             let current = queue.shift();
-            if (current.isDriver) { startNode = current; break; }
+            connectedShafts.push(current);
+            
+            // Buscar enlaces a otros ejes
             for (let link of this.getLinks()) {
                 let next = null;
                 if (link.driver.node === current) next = link.driven.node;
                 else if (link.driven.node === current) next = link.driver.node;
-                if (next && !visitedSearch.has(next)) { visitedSearch.add(next); queue.push(next); }
+                if (next && !visited.has(next)) {
+                    visited.add(next);
+                    queue.push(next);
+                }
             }
         }
-
-        if (!startNode) startNode = targetNode;
-        let isTargetMotor = (targetNode === startNode);
-
-        // 2. Trazar ruta simple usando getLinks global
-        let result = this.tracePath(startNode, targetNode, 1, new Set());
         
-        if (result !== null) {
-            // Añadir el destino al final de la lista
-            let targetGear = targetNode.components.find(c => c instanceof Gear);
-            if (targetGear && !isTargetMotor) {
-                result.path.push({ isTarget: true, comp: targetGear });
-            }
-            // ---> INICIO ARREGLO FALTANTE <---
-            return { 
-                path: result.path, 
-                totalRatio: result.totalRatio, 
-                energyPath: result.energyPath, // <--- AÑADIR ESTA LÍNEA
-                isMotor: isTargetMotor 
-            };
-            // ---> FIN ARREGLO FALTANTE <---
+        // 2. Crear mapas para la copia
+        let shaftMap = new Map();
+        let gearMap = new Map();
+        let pulleyMap = new Map();
+        let handMap = new Map();
+        
+        // 3. Copiar ejes
+        for (let s of connectedShafts) {
+            let newShaft = this.createShaft(s.x + offsetX, s.y + offsetY);
+            newShaft.angle = s.angle;
+            newShaft.omega = s.omega;
+            newShaft.isDriver = s.isDriver;
+            shaftMap.set(s, newShaft);
         }
-        return null; 
+        
+        // 4. Copiar componentes de cada eje
+        for (let s of connectedShafts) {
+            let newShaft = shaftMap.get(s);
+            if (!newShaft) continue;
+            
+            for (let comp of s.components) {
+                if (comp instanceof Gear) {
+                    let newGear = this.createGear(comp.teeth, comp.module, comp.name + "_copy", comp.plane);
+                    this.mountGear(newGear, newShaft);
+                    gearMap.set(comp, newGear);
+                } else if (comp instanceof Pulley) {
+                    let newPulley = this.createPulley(comp.name + "_copy", comp.radius, comp.plane);
+                    this.mountPulley(newPulley, newShaft);
+                    pulleyMap.set(comp, newPulley);
+                } else if (comp instanceof Hand) {
+                    let newHand = this.createHand(comp.type);
+                    // Copiar propiedades visuales
+                    newHand.color = [...comp.color];
+                    newHand.strokeW = comp.strokeW;
+                    newHand.length = comp.length;
+                    newHand.tailLength = comp.tailLength;
+                    this.mountHand(newHand, newShaft);
+                    handMap.set(comp, newHand);
+                }
+            }
+        }
+        
+        // 5. Copiar enlaces (GearMesh, Belt, RackPinionMesh)
+        for (let link of this.getLinks()) {
+            let driverShaft = link.driver.node;
+            let drivenShaft = link.driven.node;
+            
+            // Verificar que ambos extremos están en el subgrafo
+            let newDriverShaft = shaftMap.get(driverShaft);
+            let newDrivenShaft = shaftMap.get(drivenShaft);
+            if (!newDriverShaft || !newDrivenShaft) continue;
+            
+            // Encontrar los componentes correspondientes
+            if (link instanceof GearMesh) {
+                let newDriverGear = gearMap.get(link.driver);
+                let newDrivenGear = gearMap.get(link.driven);
+                if (newDriverGear && newDrivenGear) {
+                    this.connectGears(newDriverGear, newDrivenGear);
+                }
+            } else if (link instanceof Belt) {
+                let newDriverPulley = pulleyMap.get(link.driver);
+                let newDrivenPulley = pulleyMap.get(link.driven);
+                if (newDriverPulley && newDrivenPulley) {
+                    this.createBelt(newDriverPulley, newDrivenPulley, link.crossed);
+                }
+            }
+        }
+        
+        // 6. Copiar péndulos asociados
+        for (let pend of this.pendulums) {
+            let newShaft = shaftMap.get(pend.shaft);
+            if (newShaft) {
+                this.createPendulum(newShaft, pend.length, pend.amplitude, pend.frequency);
+            }
+        }
+        
+        this.afterGeometryChange();
+        return shaftMap;
     }
 
-//**********************
-  
-        tracePath(current, target, currentRatio, visited) {
-            if (current===target) {
-                return { path: [], totalRatio: currentRatio, energyPath: [] }; 
-            }
-        
-            visited.add(current);
-        
-            // Restricción topológica local
-            let validLinks = [];
-            if (current.components) {
-                for (let comp of current.components) {
-                    if (comp instanceof Gear) {
-                        for (let link of this.getLinks()) {
-                            if (link.driver === comp || link.driven === comp) {
-                                validLinks.push(link);
-                            }
-                        }
-                    }
-                }
-            }
-        
-            for (let link of validLinks) {
-                if (link instanceof GearMesh || link instanceof InternalGearMesh || link instanceof Belt) {
-                    let nextNode = null;
-                    let nextRatio = 0;
-                    let linkRatioVal = Math.abs(link.ratio()); 
-        
-                    if (link.driver.node === current) {
-                        nextNode = link.driven.node;
-                        nextRatio = currentRatio * linkRatioVal;
-                    } else if (link.driven.node === current) {
-                        nextNode = link.driver.node;
-                        nextRatio = currentRatio * (linkRatioVal !== 0 ? 1 / linkRatioVal : 9999);
-                    }
-        
-                    if (nextNode && !visited.has(nextNode)) {
-                        let subResult = this.tracePath(nextNode, target, nextRatio, visited);
-                        if (subResult !== null) {
-                            // Inyectamos los engranajes de este enlace en la ruta de energía,
-                            // evitando duplicar el engranaje de paso cuando es el mismo objeto
-                            // (driven de este enlace === driver del siguiente)
-                            let tail = subResult.energyPath;
-                            let newEnergyPath = (tail.length > 0 && tail[0] === link.driven)
-                                ? [link.driver].concat(tail)
-                                : [link.driver, link.driven].concat(tail);
-                            return { path: [{ link: link, ratio: linkRatioVal }].concat(subResult.path), totalRatio: subResult.totalRatio, energyPath: newEnergyPath };
-                        }
-                    }
-                }
-            }
-            return null;
-        }
+// ==========================================
+// FUNCIONES PARA EL HISTORIAL (Ctrl+Z)
+// ==========================================
+
+saveClockToJSON() { return this.serializer.saveLegacy(); }
+
+loadClockFromJSON(jsonStr) { return this.serializer.loadLegacy(jsonStr); }
+
+    resetComponentCounters() { return this.serializer.resetComponentCounters(); }  
   
   //***********Fin Archivo************
 }

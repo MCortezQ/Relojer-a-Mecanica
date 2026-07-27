@@ -1,0 +1,401 @@
+{
+  "metadata": {
+    "name": "Reloj 3 Agujas Concentricas",
+    "author": "Mario",
+    "date": "2026-07-25T00:00:00.000Z",
+    "version": "9.0",
+    "description": "Reloj con motor, reduccion, rueda loca, escape, motion work y segundero coaxial - exportado por Claude"
+  },
+  "session": {
+    "camera": {
+      "x": 400,
+      "y": 280,
+      "zoom": 0.75
+    },
+    "audio": {
+      "type": "square",
+      "freqTick": 1200,
+      "freqTock": 800,
+      "decay": 0.04,
+      "volume": 0.4
+    },
+    "ui": {
+      "activePlane": null
+    }
+  },
+  "design": {
+    "shafts": [
+      {
+        "id": 1,
+        "x": 700.0,
+        "y": 250.0,
+        "angle": 0,
+        "omega": 3,
+        "isDriver": true,
+        "isLocked": false,
+        "name": "S1_Motor"
+      },
+      {
+        "id": 2,
+        "x": 687.966272257812,
+        "y": 257.15467655642914,
+        "angle": 0,
+        "omega": 0,
+        "isDriver": false,
+        "isLocked": false,
+        "name": "S2_IntermedioA"
+      },
+      {
+        "id": 3,
+        "x": 710.8993009019636,
+        "y": 284.90492335184797,
+        "angle": 0,
+        "omega": 0,
+        "isDriver": false,
+        "isLocked": false,
+        "name": "S3_Escape"
+      },
+      {
+        "id": 4,
+        "x": 710.8993009019636,
+        "y": 404.90492335184797,
+        "angle": 0.5235987755982988,
+        "omega": 0,
+        "isDriver": false,
+        "isLocked": false,
+        "name": "S4_Pendulo"
+      },
+      {
+        "id": 5,
+        "x": 681.0206249030967,
+        "y": 329.8856383367695,
+        "angle": 0,
+        "omega": 0,
+        "isDriver": false,
+        "isLocked": false,
+        "name": "S5a_MinReductorA"
+      },
+      {
+        "id": 6,
+        "x": 735.2095452190024,
+        "y": 345.70670850885824,
+        "angle": 0,
+        "omega": 0,
+        "isDriver": false,
+        "isLocked": false,
+        "name": "S6_Minutero"
+      },
+      {
+        "id": 7,
+        "x": 774.4698891852998,
+        "y": 365.57188889183413,
+        "angle": 0,
+        "omega": 0,
+        "isDriver": false,
+        "isLocked": false,
+        "name": "S7_IntermedioHorario"
+      },
+      {
+        "id": 8,
+        "x": 735.2095452190024,
+        "y": 345.70670850885824,
+        "angle": 0,
+        "omega": 0,
+        "isDriver": false,
+        "isLocked": false,
+        "name": "S8_Horario"
+      },
+      {
+        "id": 9,
+        "x": 732.4220952826141,
+        "y": 305.80395017245075,
+        "angle": 0,
+        "omega": 0,
+        "isDriver": false,
+        "isLocked": false,
+        "name": "S9_StudSegundos"
+      },
+      {
+        "id": 10,
+        "x": 735.2095452190024,
+        "y": 345.70670850885824,
+        "angle": 0,
+        "omega": 0,
+        "isDriver": false,
+        "isLocked": false,
+        "name": "S10_Segundero"
+      },
+      {
+        "id": 11,
+        "x": 684.1000009559162,
+        "y": 318.2874728298748,
+        "angle": 0,
+        "omega": 0,
+        "isDriver": false,
+        "isLocked": false,
+        "name": "S5b_MinReductorB"
+      },
+      {
+        "id": 12,
+        "x": 704.8129039392314,
+        "y": 294.0676615895172,
+        "angle": 0,
+        "omega": 0,
+        "isDriver": false,
+        "isLocked": false,
+        "name": "S12_MinLoca"
+      }
+    ],
+    "gears": [
+      {
+        "id": 1,
+        "shaftId": 1,
+        "teeth": 10,
+        "module": 0.4,
+        "name": "G1_Motor",
+        "plane": 0
+      },
+      {
+        "id": 2,
+        "shaftId": 2,
+        "teeth": 60,
+        "module": 0.4,
+        "name": "G2_IntA_Rueda",
+        "plane": 0
+      },
+      {
+        "id": 3,
+        "shaftId": 2,
+        "teeth": 10,
+        "module": 1.8,
+        "name": "G3_IntA_Pinon",
+        "plane": 1
+      },
+      {
+        "id": 4,
+        "shaftId": 3,
+        "teeth": 30,
+        "module": 1.8,
+        "name": "G4_Escape_Rueda",
+        "plane": 1
+      },
+      {
+        "id": 5,
+        "shaftId": 3,
+        "teeth": 10,
+        "module": 1.6,
+        "name": "G5_Escape_Pinon",
+        "plane": 2
+      },
+      {
+        "id": 6,
+        "shaftId": 5,
+        "teeth": 50,
+        "module": 1.6,
+        "name": "G6a_Min_RuedaA",
+        "plane": 2
+      },
+      {
+        "id": 16,
+        "shaftId": 5,
+        "teeth": 10,
+        "module": 0.4,
+        "name": "G6b_Min_PinonA",
+        "plane": 3
+      },
+      {
+        "id": 17,
+        "shaftId": 11,
+        "teeth": 50,
+        "module": 0.4,
+        "name": "G6c_Min_RuedaB",
+        "plane": 3
+      },
+      {
+        "id": 18,
+        "shaftId": 11,
+        "teeth": 10,
+        "module": 2.0,
+        "name": "G6d_Min_PinonB",
+        "plane": 4
+      },
+      {
+        "id": 7,
+        "shaftId": 6,
+        "teeth": 48,
+        "module": 2.0,
+        "name": "G7_Min_RuedaCentral",
+        "plane": 4
+      },
+      {
+        "id": 8,
+        "shaftId": 6,
+        "teeth": 10,
+        "module": 2.2,
+        "name": "G8_Min_Canon",
+        "plane": 5
+      },
+      {
+        "id": 9,
+        "shaftId": 7,
+        "teeth": 30,
+        "module": 2.2,
+        "name": "G9_IntH_RuedaMinutera",
+        "plane": 5
+      },
+      {
+        "id": 10,
+        "shaftId": 7,
+        "teeth": 10,
+        "module": 1.76,
+        "name": "G10_IntH_PinonHorario",
+        "plane": 6
+      },
+      {
+        "id": 11,
+        "shaftId": 8,
+        "teeth": 40,
+        "module": 1.76,
+        "name": "G11_Hor_RuedaHoraria",
+        "plane": 6
+      },
+      {
+        "id": 12,
+        "shaftId": 3,
+        "teeth": 10,
+        "module": 2.0,
+        "name": "G12_Escape_PinonSeg",
+        "plane": 7
+      },
+      {
+        "id": 13,
+        "shaftId": 9,
+        "teeth": 20,
+        "module": 2.0,
+        "name": "G13_Seg_RuedaIntermedia",
+        "plane": 7
+      },
+      {
+        "id": 14,
+        "shaftId": 9,
+        "teeth": 20,
+        "module": 2.0,
+        "name": "G14_Seg_PinonIntermedio",
+        "plane": 8
+      },
+      {
+        "id": 15,
+        "shaftId": 10,
+        "teeth": 20,
+        "module": 2.0,
+        "name": "G15_Seg_RuedaFinal",
+        "plane": 8
+      },
+      {
+        "id": 19,
+        "shaftId": 12,
+        "teeth": 10,
+        "module": 0.6,
+        "name": "G_Min_Loca",
+        "plane": 2
+      }
+    ],
+    "meshes": [
+      {
+        "driverId": 1,
+        "drivenId": 2
+      },
+      {
+        "driverId": 3,
+        "drivenId": 4
+      },
+      {
+        "driverId": 5,
+        "drivenId": 19
+      },
+      {
+        "driverId": 19,
+        "drivenId": 6
+      },
+      {
+        "driverId": 16,
+        "drivenId": 17
+      },
+      {
+        "driverId": 18,
+        "drivenId": 7
+      },
+      {
+        "driverId": 8,
+        "drivenId": 9
+      },
+      {
+        "driverId": 10,
+        "drivenId": 11
+      },
+      {
+        "driverId": 12,
+        "drivenId": 13
+      },
+      {
+        "driverId": 14,
+        "drivenId": 15
+      }
+    ],
+    "pendulums": [
+      {
+        "id": 1,
+        "shaftId": 4,
+        "length": 150,
+        "amplitude": 0.5235987755982988,
+        "frequency": 1
+      }
+    ],
+    "escapements": [
+      {
+        "pendulumId": 1,
+        "escapeGearId": 4,
+        "type": "swiss"
+      }
+    ],
+    "hands": [
+      {
+        "shaftId": 6,
+        "type": "minutero",
+        "color": [
+          0,
+          0,
+          200
+        ],
+        "strokeW": 4,
+        "length": 42,
+        "tailLength": 0
+      },
+      {
+        "shaftId": 8,
+        "type": "horario",
+        "color": [
+          0,
+          150,
+          0
+        ],
+        "strokeW": 6,
+        "length": 28,
+        "tailLength": 0
+      },
+      {
+        "shaftId": 10,
+        "type": "segundero",
+        "color": [
+          200,
+          0,
+          0
+        ],
+        "strokeW": 1.5,
+        "length": 48,
+        "tailLength": 8
+      }
+    ],
+    "totalTicks": 0
+  }
+}
