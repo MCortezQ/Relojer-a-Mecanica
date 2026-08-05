@@ -722,11 +722,44 @@ class PropertyPanel {
                 let p = this.system.createPulley("", 30);
                 this.system.mountPulley(p, this.selectedNode);
                 this.selectedComponent = p;
-            } else if (t.includes("Crem")) {
-                let g = this.system.createGuide(this.selectedNode.x, this.selectedNode.y + 80);
-                let r = this.system.createRack(10, 5);
+            } else if (t.includes("Cre")) {
+                // 1. Verificar que hay un eje seleccionado
+                if (!this.selectedNode) {
+                    console.warn("⚠️ No hay eje seleccionado.");
+                    return;
+                }
+                
+                // 2. Buscar el piñón en el eje seleccionado
+                let pinion = this.selectedNode.components.find(c => c instanceof Gear);
+                
+                if (!pinion) {
+                    console.warn("⚠️ El eje seleccionado no tiene engranaje.");
+                    // Crear la cremallera igual pero sin conectar
+                    let g = this.system.createGuide(this.selectedNode.x, this.selectedNode.y + 80);
+                    let r = this.system.createRack(10, 5);
+                    this.system.mountRack(r, g);
+                    this.selectedComponent = r;
+                    this.update();
+                    return;
+                }
+                
+                // 3. Crear guía y cremallera
+                let g = this.system.createGuide(pinion.x, pinion.y + pinion.outsideRadius + 30);
+                let r = this.system.createRack(10, pinion.module, "Cremallera", pinion.plane);
                 this.system.mountRack(r, g);
+                
+                // 4. Conectar automáticamente el piñón con la cremallera
+                let mesh = this.system.createRackPinionMesh(pinion, r);
+                this.system.restoreRackPinion(mesh, pinion.node);
+                
+                // 5. Seleccionar la cremallera
                 this.selectedComponent = r;
+                
+                // 6. Actualizar UI
+                this.update();
+                
+                console.log("✅ Cremallera creada y conectada al piñón.");
+            
             } else if (t.includes("Segundero")) {
                 let hand = this.system.createHand('segundero');
                 this.system.mountHand(hand, this.selectedNode);
@@ -749,13 +782,14 @@ class PropertyPanel {
             this.setSelection(newShaft);
         });
     
-        // --- FILA 2: Rama (izquierda) + Forklift (centro) + Corona (derecha) ---
+        // --- FILA 2: Rama + Péndulo + Forklift + Corona ---
         let row2 = createDiv();
         row2.parent(container);
-        row2.style("display", "flex");
+        row2.style("display", "grid");
+        row2.style("grid-template-columns", "1fr 1fr");
         row2.style("gap", "6px");
-        row2.style("flex-wrap", "wrap");
         row2.style("align-items", "center");
+        row2.style("margin-bottom", "4px");
     
         // ✅ Botón Rama (izquierda)
         let bBranch = createButton("🌿 Rama");
@@ -797,28 +831,16 @@ class PropertyPanel {
             this.update();
         });
     
-/*        // ✅ Spacer para empujar Corona a la derecha
-        let spacerRight = createDiv();
-        spacerRight.parent(row2);
-        spacerRight.style("flex", "1");
-        spacerRight.style("min-width", "4px");*/
-    
-        // ✅ Botón Corona (derecha)
-        let bCorona = createButton("⭕ Corona");
-        bCorona.attribute("title", "Crear corona dentada (tren planetario)");
-        bCorona.parent(row2);
-        this.styleBtn(bCorona, "#7f8c8d");
-        bCorona.mousePressed(() => {
-            this.system.pushHistory();
-            let sun = this.system.findCenterShaftFor(this.selectedNode);
-            let sT = sun ? sun.components[0].teeth : 30;
-            let pT = this.selectedComponent ? this.selectedComponent.teeth : 20;
-            let a = this.system.createAnnulus(sT + (2 * pT), 5);
-            if (sun) { a.shaft.x = sun.x; a.shaft.y = sun.y; }
-            this.update();
-        });
-    }
+        // ✅ ELIMINADO: el botón "Corona" que estaba aquí quedó redundante tras
+        // la consolidación — hace exactamente lo mismo que el del panel
+        // Inspector (junto a "Órbita"), pero ese aparece solo cuando hay un
+        // eje seleccionado (contexto correcto); este era visible sin
+        // selección, donde no podía hacer nada útil. Se deja solo el del
+        // Inspector. La lógica sigue viva en
+        // this.system.createOrConnectCorona(), sin cambios.
+    }                             
 
+//******************
     buildInspectorSection(container) {
         let comp = this.selectedComponent;
         if (!comp) return;
@@ -943,22 +965,30 @@ class PropertyPanel {
         actionRow.style("margin-bottom", "4px");
     
         if (comp instanceof Gear) {
-            let btnEng = createButton("🔗 Engran ");
+            let btnEng = createButton("🔗 Engranar ");
             btnEng.parent(actionRow);
             this.styleBtn(btnEng, "#8e44ad");
             btnEng.attribute("title", "Conectar este engranaje con otro");
+            if (this.system.connectionMode && this.system.connectionSourceGear === comp) {
+                this.setWaitingStyle(btnEng);
+            }
             btnEng.mousePressed(() => {
                 this.clearActiveStyles();
                 this.system.beginConnection(comp);
+                this.setWaitingStyle(btnEng);
             });
     
-            let btnCre = createButton("🔗 Cre");
+            let btnCre = createButton("🔗 Cremallera");
             btnCre.parent(actionRow);
             this.styleBtn(btnCre, "#8e44ad");
             btnCre.attribute("title", "Conectar a una cremallera");
+            if (this.system.rackConnectionMode && this.system.connectionSourcePinion === comp) {
+                this.setWaitingStyle(btnCre);
+            }
             btnCre.mousePressed(() => {
                 this.clearActiveStyles();
                 this.system.beginRackConnection(comp);
+                this.setWaitingStyle(btnCre);
             });
     
             let isEsc = this.system.escapements.some(e => e.escapeGear === comp);
@@ -978,6 +1008,9 @@ class PropertyPanel {
                 btnEscape.parent(actionRow);
                 this.styleBtn(btnEscape, "#c0392b");
                 btnEscape.attribute("title", "Crear escape con este engranaje");
+                if (this.system.pendulumSelectionMode && this.system.pendingEscapeGear === comp) {
+                    this.setWaitingStyle(btnEscape);
+                }
                 btnEscape.mousePressed(() => {
                     this.system.pushHistory();
                     let type = escTypeSelect.value();
@@ -996,6 +1029,7 @@ class PropertyPanel {
                         this.system.pendulumSelectionMode = true;
                         this.system.pendingEscapeGear = comp;
                         this.system.pendingEscapeType = type;
+                        this.setWaitingStyle(btnEscape);
                         this.update();
                     }
                 });
@@ -1005,9 +1039,13 @@ class PropertyPanel {
             btnPulley.parent(actionRow);
             this.styleBtn(btnPulley, "#8e44ad");
             btnPulley.attribute("title", "Conectar esta polea con otra");
+            if (this.system.pulleyConnectionMode && this.system.connectionSourcePulley === comp) {
+                this.setWaitingStyle(btnPulley);
+            }
             btnPulley.mousePressed(() => {
                 this.clearActiveStyles();
                 this.system.beginPulleyConnection(comp);
+                this.setWaitingStyle(btnPulley);
             });
         }
     
@@ -1016,21 +1054,22 @@ class PropertyPanel {
         // ==========================================
         let bottomRow = createDiv();
         bottomRow.parent(container);
-        bottomRow.style("display", "flex");
-        bottomRow.style("flex-wrap", "wrap");
+        // ✅ CORREGIDO: antes "display:flex + flex-wrap:wrap" con botones
+        // "flex:1 1 auto" — un botón solo en su línea se estiraba a ocupar
+        // todo el ancho. Mismo esquema que ya usa row2 más arriba (grid 1fr
+        // 1fr), que sí garantiza 2 por línea sin importar cuántos botones
+        // haya en un momento dado.
+        bottomRow.style("display", "grid");
+        bottomRow.style("grid-template-columns", "1fr 1fr");
         bottomRow.style("gap", "4px");
         bottomRow.style("align-items", "center");
     
         // --- Desengranar ---
-        // (order:0 — junto con Órbita en la primera línea; el control de motor,
-        // más ancho, se fuerza a su propia línea completa con flex-basis:100%
-        // más abajo, en vez de dejar que el wrap decida dónde corta.)
         if (comp instanceof Gear || comp instanceof Pulley) {
-            let btnDisconnect = createButton("✂️ Deseng");
+            let btnDisconnect = createButton("✂️ Desengranar");
             btnDisconnect.parent(bottomRow);
-            btnDisconnect.style("order", "0");
+            // Gris = estructura/acción neutra (mismo significado que "crear eje").
             this.styleBtn(btnDisconnect, "#7f8c8d");
-            btnDisconnect.style("flex", "1 1 auto");
             btnDisconnect.attribute("title", "Desconectar este componente de sus enlaces");
             btnDisconnect.mousePressed(() => {
                 if (comp) {
@@ -1041,26 +1080,27 @@ class PropertyPanel {
             });
         }
     
-        // --- Control de Motor ---
+        // --- Control de Motor (del eje seleccionado) ---
         if (this.selectedNode && !(this.selectedNode instanceof LinearGuide)) {
             let motorContainer = createDiv();
             motorContainer.parent(bottomRow);
             motorContainer.style("display", "flex");
             motorContainer.style("align-items", "center");
             motorContainer.style("gap", "3px");
-            motorContainer.style("order", "2");
-            motorContainer.style("flex-basis", "100%"); // Fuerza su propia línea completa
+            motorContainer.style("grid-column", "1 / -1"); // ocupa la línea completa (control compuesto)
             motorContainer.style("margin-top", "2px");
     
             let lblMotor = createElement("span", "⚡");
             lblMotor.parent(motorContainer);
-            lblMotor.style("font-size", "11px");
+            lblMotor.style("font-size", "10px");
+            lblMotor.style("color", "#666");
+            lblMotor.style("white-space", "nowrap");
             lblMotor.attribute("title", "Control del motor");
     
             let velInput = createInput(str(this.selectedNode.omega || 0), "number");
             velInput.parent(motorContainer);
             velInput.attribute("step", "0.1");
-            velInput.style("width", "40px");
+            velInput.style("width", "30px");
             velInput.style("font-size", "10px");
             velInput.style("padding", "2px");
             velInput.attribute("title", "Velocidad angular (rad/s)");
@@ -1106,31 +1146,165 @@ class PropertyPanel {
             labelRad.style("color", "#666");
             labelRad.attribute("title", "Unidad de velocidad angular");
     
-            // --- Botón Órbita ---
-            let bOrbit = createButton("🌀 Orbita");
+            // --- Botón Órbita: crear el carrier ---
+            // Este botón solo crea el carrier; si ya existe uno para este eje,
+            // no hace nada más (no es un toggle).
+            let existingCarrier = this.system.carriers.find(c => c.attachedShafts.includes(this.selectedNode));
+
+            let bOrbit = createButton(existingCarrier ? "🌀 Órbita creada" : "🌀 Crear Órbita");
             bOrbit.parent(bottomRow);
-            bOrbit.style("order", "1");
-            this.styleBtn(bOrbit, "#d35400");
-            bOrbit.style("flex", "1 1 auto");
-            bOrbit.style("font-size", "9px");
-            bOrbit.style("padding", "5px 6px");
-            bOrbit.attribute("title", "Activar movimiento orbital (tren planetario)");
-            bOrbit.mousePressed(() => {
-                for (let c of this.system.carriers) {
-                    if (c.attachedShafts.includes(this.selectedNode)) {
-                        c.isDriver = !c.isDriver;
+            // ✅ Morado = "crear/conectar un mecanismo" (mismo significado que
+            // engranar, crear polea, crear péndulo). Gris = ya creado / inactivo.
+            this.styleBtn(bOrbit, existingCarrier ? "#95a5a6" : "#8e44ad");
+            bOrbit.attribute("title", existingCarrier
+                ? "Este eje ya tiene un carrier — usa el selector de modo para configurarlo"
+                : "Crear movimiento orbital (tren planetario)");
+            if (existingCarrier) {
+                bOrbit.attribute("disabled", true);
+            } else {
+                bOrbit.mousePressed(() => {
+                    let center = this.system.findCenterShaftFor(this.selectedNode);
+                    if (center) {
+                        this.system.pushHistory();
+                        this.system.createCarrier(center, this.selectedNode);
                         this.update();
-                        return;
+                    } else {
+                        console.warn("No está engranado.");
+                    }
+                });
+            }
+
+            // ✅ Botón Corona — mismo método idempotente que el del panel CREAR.
+            let btnCorona = createButton("⭕ Corona");
+            btnCorona.parent(bottomRow);
+            // Morado, mismo significado que "Crear Órbita": crear/conectar un mecanismo.
+            this.styleBtn(btnCorona, "#8e44ad");
+            btnCorona.attribute("title", "Crear o conectar la corona dentada (tren planetario)");
+            btnCorona.mousePressed(() => {
+                this.system.pushHistory();
+                let annulus = this.system.createOrConnectCorona(this.selectedNode);
+                if (annulus) {
+                    console.log(`✅ Corona: ${annulus.teeth}d en (${annulus.shaft.x}, ${annulus.shaft.y})`);
+                }
+                this.update();
+            });
+
+            // --- Selector de modo: qué elemento es la entrada libre ---
+            // ✅ NUEVO: 'Motor' y 'Corona' no necesitan lógica adicional — se
+            // logran seleccionando el eje del sol o el de la corona y usando
+            // SU propio botón de motor (arriba), porque la ecuación de Willis
+            // es simétrica en omega_sol/omega_corona. Solo 'Traslación' es
+            // realmente nuevo: el portador pasa a ser la entrada libre.
+            if (existingCarrier) {
+                let modeRow = createDiv();
+                modeRow.parent(bottomRow);
+                modeRow.style("grid-column", "1 / -1");
+                modeRow.style("display", "flex");
+                modeRow.style("gap", "4px");
+                modeRow.style("margin-top", "2px");
+
+                let lblMode = createElement("span", "Entrada libre:");
+                lblMode.parent(modeRow);
+                lblMode.style("font-size", "9px");
+                lblMode.style("color", "#666");
+                lblMode.style("white-space", "nowrap");
+
+                const modes = [
+                    { key: "motor", label: "⚡ Motor", hint: "El sol es la entrada — usa el botón de motor del eje del sol." },
+                    { key: "corona", label: "⭕ Corona", hint: "La corona es la entrada — selecciona su eje y usa su propio botón de motor." },
+                    { key: "traslacion", label: "🔄 Traslación", hint: "El portador es la entrada — velocidad editable abajo." },
+                ];
+
+                for (let m of modes) {
+                    let isActive = (existingCarrier.inputMode || "motor") === m.key;
+                    let bMode = createButton(m.label);
+                    bMode.parent(modeRow);
+                    bMode.style("flex", "1");
+                    bMode.style("font-size", "8px");
+                    bMode.style("padding", "3px 2px");
+                    // Morado = modo activo (es la variante de "mecanismo configurado"
+                    // en uso), gris = disponible pero no seleccionado.
+                    this.styleBtn(bMode, isActive ? "#8e44ad" : "#bdc3c7");
+                    bMode.attribute("title", m.hint);
+                    bMode.mousePressed(() => {
+                        existingCarrier.inputMode = m.key;
+                        this.update();
+                    });
+                }
+
+                // --- Control de velocidad del portador (solo modo Traslación) ---
+                if ((existingCarrier.inputMode || "motor") === "traslacion") {
+                    let hasAnnulus = existingCarrier.attachedShafts.some(s => this.system.findAnnulusFor(s));
+
+                    let translContainer = createDiv();
+                    translContainer.parent(bottomRow);
+                    translContainer.style("grid-column", "1 / -1");
+                    translContainer.style("display", "flex");
+                    translContainer.style("align-items", "center");
+                    translContainer.style("gap", "3px");
+
+                    let lblTransl = createElement("span", "🔄");
+                    lblTransl.parent(translContainer);
+                    lblTransl.style("font-size", "10px");
+
+                    let translInput = createInput(str(existingCarrier.omega || 0), "number");
+                    translInput.parent(translContainer);
+                    translInput.attribute("step", "0.1");
+                    translInput.style("width", "30px");
+                    translInput.style("font-size", "10px");
+                    translInput.style("padding", "2px");
+                    translInput.attribute("title", "Velocidad angular del portador (rad/s)");
+                    translInput.input(() => {
+                        let val = float(translInput.value());
+                        if (!isNaN(val)) {
+                            existingCarrier.omega = val;
+                            existingCarrier.isDriver = (val !== 0);
+                            this.updateNodeInfo();
+                        }
+                    });
+
+                    let bTranslToggle = createButton(existingCarrier.isDriver ? "🔄 ON" : "🔄 OFF");
+                    bTranslToggle.parent(translContainer);
+                    this.styleBtn(bTranslToggle, existingCarrier.isDriver ? "#e67e22" : "#bdc3c7");
+                    bTranslToggle.style("width", "45px");
+                    bTranslToggle.style("font-size", "9px");
+                    bTranslToggle.style("padding", "4px");
+                    bTranslToggle.mousePressed(() => {
+                        existingCarrier.isDriver = !existingCarrier.isDriver;
+                        if (!existingCarrier.isDriver) {
+                            existingCarrier.omega = 0;
+                        } else if (existingCarrier.omega === 0) {
+                            existingCarrier.omega = 1;
+                        }
+                        translInput.value(existingCarrier.omega);
+                        this.update();
+                    });
+
+                    let labelRad2 = createElement("span", "rad/s");
+                    labelRad2.parent(translContainer);
+                    labelRad2.style("font-size", "9px");
+                    labelRad2.style("color", "#666");
+
+                    if (!hasAnnulus) {
+                        let lblNote = createElement("span", "(sin corona: solo orbita el planeta)");
+                        lblNote.parent(translContainer);
+                        lblNote.style("font-size", "8px");
+                        lblNote.style("color", "#999");
+                    }
+                } else {
+                    // ✅ Opción A: en modos 'motor'/'corona', sin corona conectada
+                    // la ecuación se cancela a 0 siempre — avisar en vez de
+                    // fallar en silencio.
+                    let hasAnnulus = existingCarrier.attachedShafts.some(s => this.system.findAnnulusFor(s));
+                    if (!hasAnnulus) {
+                        let lblWarn = createElement("span", "⚠️ Sin corona conectada, el carrier no puede orbitar en este modo.");
+                        lblWarn.parent(bottomRow);
+                        lblWarn.style("grid-column", "1 / -1");
+                        lblWarn.style("font-size", "8px");
+                        lblWarn.style("color", "#c0392b");
                     }
                 }
-                let center = this.system.findCenterShaftFor(this.selectedNode);
-                if (center) {
-                    this.system.createCarrier(center, this.selectedNode);
-                    this.update();
-                } else {
-                    console.warn("No está engranado.");
-                }
-            });
+            }
         }
     }
 
@@ -1376,17 +1550,25 @@ class PropertyPanel {
                         resultDiv.style("margin-top", "2px");
         
                         let r = kinData.totalRatio;
-                        let displayRatio = (r >= 1) ? `x${r.toFixed(2)}` : `1/${Math.round(1 / r)}`;
+                        let displayRatio;
+                        if (kinData.isExact && kinData.exactNum && kinData.exactDen) {
+                            // Fracción exacta a partir de los dientes reales (no una aproximación
+                            // del decimal): reducida por MCD, puede dar "17/53" y no solo "1/N".
+                            let gcd = (a, b) => b === 0 ? a : gcd(b, a % b);
+                            let g = gcd(kinData.exactNum, kinData.exactDen) || 1;
+                            let num = kinData.exactNum / g;
+                            let den = kinData.exactDen / g;
+                            displayRatio = (num === 1) ? `1/${den}` : (den === 1) ? `x${num}` : `${num}/${den}`;
+                        } else {
+                            // Camino con correa/corona u otro enlace no entero: no hay fracción
+                            // exacta posible, se mantiene el decimal de siempre.
+                            displayRatio = (r >= 1) ? `x${r.toFixed(2)}` : `1/${Math.round(1 / r)}`;
+                        }
                         resultDiv.html(`Reducción Total: ${displayRatio}`);
                     }
                 }
             }
-        
-            // (Antes había un segundo botón "🔄 Actualizar Análisis" duplicado aquí —
-            // buildAnalysisSection() ya crea uno fijo arriba, en la posición 0, que se
-            // preserva en cada refresco; no hace falta otro al final.)
-
-    }
+        }
 
     // ==========================================
     // SECCIÓN ELIMINAR
@@ -1489,7 +1671,10 @@ class PropertyPanel {
         this.audioContainer.show();
         if (this.audioToggleBtn) {
             this.audioToggleBtn.html('🔊');
-            this.styleBtn(this.audioToggleBtn, "#c0392b");
+            // ✅ CORREGIDO: rojo quedaba reservado para "destructivo/irreversible"
+            // (cancelar) — usarlo también como estado ON de un toggle generaba
+            // ambigüedad. Ahora ON = naranja, igual que el resto de los toggles.
+            this.styleBtn(this.audioToggleBtn, "#e67e22");
         }
 
         // Tipo de onda
@@ -1605,14 +1790,18 @@ class PropertyPanel {
             this.analysisContainer.hide();
             if (this.analysisToggleBtn) {
                 this.analysisToggleBtn.html('📊');
-                this.styleBtn(this.analysisToggleBtn, "#8e44ad");
+                // ✅ CORREGIDO: antes OFF=morado (reservado para "crear/conectar
+                // mecanismo") y ON=rojo (reservado para "destructivo"). Ninguno
+                // de los dos significados aplicaba realmente acá — es un
+                // toggle simple, así que pasa al mismo esquema gris/naranja.
+                this.styleBtn(this.analysisToggleBtn, "#bdc3c7");
             }
             return;
         }
         this.analysisContainer.show();
         if (this.analysisToggleBtn) {
             this.analysisToggleBtn.html('📊');
-            this.styleBtn(this.analysisToggleBtn, "#c0392b");
+            this.styleBtn(this.analysisToggleBtn, "#e67e22");
         }
 
         // Botón para abrir el análisis en el editor
@@ -1665,6 +1854,17 @@ class PropertyPanel {
         btn.mouseOut(() => {
             btn.style("opacity", "1");
         });
+    }
+
+    // Estilo para un botón que quedó "armado", esperando que el usuario haga clic
+    // en el componente destino (engranar, cremallera, polea, escape con varios péndulos).
+    // Se aplica directamente sobre el botón (feedback inmediato, sin esperar un
+    // refresco completo del panel) y también se re-aplica al reconstruir el panel
+    // mientras el modo siga activo (ver los "if" al crear cada botón más arriba).
+    setWaitingStyle(btn) {
+        btn.style("opacity", "0.5");
+        btn.style("cursor", "wait");
+        btn.style("border", "1px dashed white");
     }
 
     clearActiveStyles() {

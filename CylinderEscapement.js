@@ -18,7 +18,8 @@ class CylinderEscapement {
             console.error("❌ ERROR: Péndulo y escape en el mismo eje");
             return null;
         }
-        
+
+        this.cylinderRadius = escapeGear.pitchRadius * 0.7;
         this.pendulum = pendulum;
         this.escapeGear = escapeGear;
         this.system = system;

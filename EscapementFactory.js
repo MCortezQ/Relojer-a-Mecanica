@@ -11,6 +11,7 @@ class EscapementFactory {
         DETENT: 'detent',
         VERGE: 'verge'
     };
+
     // Nombres mostrados en UI
     static TYPE_NAMES = {
         swiss: 'Suizo (Áncora)',

@@ -29,7 +29,9 @@ class Solver {
         }
         
         for (let node of nodes) {
-            node.update(dt);
+            if (node.lockOwner === null) {
+                node.update(dt);
+            }
         }
     }
 

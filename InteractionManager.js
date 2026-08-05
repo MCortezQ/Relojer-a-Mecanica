@@ -79,6 +79,10 @@ class InteractionManager {
             let links = this.system.getLinks(); 
             
             for(let link of links) {
+                // ✅ CORREGIDO: una malla inválida (desengranada) ya no debe
+                // arrastrarse como si siguiera rígidamente unida al resto del tren.
+                if (link.isValid === false) continue;
+
                 let other = null;
                 if(link.driver.node === current) other = link.driven.node;
                 else if(link.driven.node === current) other = link.driver.node;
@@ -317,6 +321,10 @@ tracePath(current, target, currentRatio, visited) {
     }
     
     for (let link of validLinks) {
+        // ✅ CORREGIDO: una malla inválida (desengranada) no debe aparecer en la
+        // ruta cinemática ni en el cálculo de relación de transmisión.
+        if (link.isValid === false) continue;
+
         if (link instanceof GearMesh || link instanceof InternalGearMesh || link instanceof Belt) {
             let nextNode = null;
             let nextRatio = 0;

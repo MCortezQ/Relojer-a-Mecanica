@@ -19,6 +19,13 @@ class Annulus {
         return this.shaft.y;
     }
 
+    // ✅ AGREGADO: faltaba este getter. Renderer.js necesita annulus.angle para
+    // rotar el dibujo de la corona — sin él, la física giraba bien pero el
+    // dibujo quedaba siempre congelado en la orientación inicial.
+    get angle() {
+        return this.shaft.angle;
+    }
+
     updateGeometry() {
         this.pitchDiameter = this.module * this.teeth;
         this.pitchRadius = this.pitchDiameter / 2;

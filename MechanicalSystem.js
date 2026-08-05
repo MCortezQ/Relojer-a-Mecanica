@@ -105,6 +105,7 @@ class MechanicalSystem {
     createAnnulus(teeth, module, name = "") { return this.factory.createAnnulus(teeth, module, name); }
 
     createInternalMesh(planet, annulus) { return this.factory.createInternalMesh(planet, annulus); }
+    createOrConnectCorona(planetShaft) { return this.factory.createOrConnectCorona(planetShaft); }
 
     createPulley(name, radius, plane = 0) { return this.factory.createPulley(name, radius, plane); }
 
@@ -259,10 +260,25 @@ class MechanicalSystem {
     }  
 //************************
     findCenterShaftFor(shaft) {
-        // Busca con qué eje está engranado este eje para usarlo como centro
+/*        // Busca con qué eje está engranado este eje para usarlo como centro
         for(let mesh of this.meshes) {
             if(mesh.driver.shaft === shaft) return mesh.driven.shaft;
             if(mesh.driven.shaft === shaft) return mesh.driver.shaft;
+        }*/
+
+          for(let mesh of this.meshes) {
+            // Si el shaft es el driver, el centro es el driven
+            if(mesh.driver.shaft === shaft) {
+                // Pero si el driven es el mismo shaft (no debería pasar), saltar
+                if(mesh.driven.shaft === shaft) continue;
+                return mesh.driven.shaft;
+            }
+            // Si el shaft es el driven, el centro es el driver
+            if(mesh.driven.shaft === shaft) {
+                // Pero si el driver es el mismo shaft (no debería pasar), saltar
+                if(mesh.driver.shaft === shaft) continue;
+                return mesh.driver.shaft;
+            }
         }
         return null;
     }
@@ -271,6 +287,10 @@ class MechanicalSystem {
     updateCarriers(dt) {
         for (let carrier of this.carriers) {
             carrier.update(dt);
+        }
+        // ✅ AÑADIR ESTO: Actualizar guías lineales
+        for (let guide of this.guides) {
+            guide.update(dt);
         }
     }
 

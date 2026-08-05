@@ -167,29 +167,6 @@ class Renderer {
         let isVisible = (activePlane === null || gPlane === activePlane);
         if (!isVisible) return;
     
-/*        // ---> UMBRAL DE CAMBIO DE ÁNGULO <---
-        let currentAngle = gear.angle;
-        let angleChanged = false;
-        if (gear._lastRenderAngle === undefined || Math.abs(currentAngle - gear._lastRenderAngle) > 1e-6) {
-            angleChanged = true;
-            gear._lastRenderAngle = currentAngle;
-        }
-
-// ---> UMBRAL DE CAMBIO DE ÁNGULO <---
-let currentAngle = gear.angle;
-let angleChanged = false;
-let delta = Math.abs(currentAngle - (gear._lastRenderAngle || 0));
-
-// ✅ Log solo para engranajes grandes (E4 y E6, > 40 dientes)
-if (gear.teeth > 40) {
-    console.log(`📐 ${gear.name}: delta=${delta.toFixed(10)}, current=${currentAngle.toFixed(4)}, last=${(gear._lastRenderAngle || 0).toFixed(4)}`);
-}
-
-if (gear._lastRenderAngle === undefined || delta > 1e-6) {
-    angleChanged = true;
-    gear._lastRenderAngle = currentAngle;
-}  */    
-    
         // ---> CACHE <---
         let hash = this.getGearHash(gear);
         
@@ -479,6 +456,9 @@ if (gear._lastRenderAngle === undefined || delta > 1e-6) {
         for (let annulus of this.system.annuli) {
             push();
             translate(annulus.x, annulus.y);
+            // ✅ AGREGADO: faltaba rotar segun annulus.angle -- por eso
+            // la corona giraba bien en la fisica pero se vela siempre congelada.
+            rotate(annulus.angle);
             
             // Dibujar el borde exterior sólido
             stroke(0);

@@ -288,6 +288,75 @@ createEscapement(pendulumShaft, escapeGear, type = 'swiss') {
         return mesh;
     }
 
+    // ✅ NUEVO: reemplaza los dos flujos de "Corona" que coexistían en
+    // PropertyPanel.js (uno creaba+posicionaba pero nunca conectaba vía
+    // createInternalMesh; el otro conectaba a this.system.annuli[0] pero
+    // nunca creaba ni reposicionaba). Idempotente: puede llamarse las veces
+    // que sea sobre el mismo planeta y siempre termina en el mismo estado
+    // correcto (corona conectada y centrada en el sol actual).
+    //
+    // ✅ CORREGIDO: antes asumía que "selectedShaft" siempre era el planeta y
+    // "el otro eje" siempre el sol. Si seleccionabas el eje del SOL antes de
+    // presionar Corona, quedaba todo invertido (la corona se centraba en el
+    // planeta). Ahora sol/planeta se resuelven por un criterio real:
+    // 1) si ya existe un Carrier para el par, él es la fuente de verdad;
+    // 2) si no, el sol es por convención el de más dientes.
+    createOrConnectCorona(selectedShaft) {
+        let otherShaft = this.system.findCenterShaftFor(selectedShaft);
+        if (!otherShaft) {
+            console.warn("⚠️ El eje seleccionado no está engranado con nada.");
+            return null;
+        }
+
+        let sunShaft, planetShaft;
+
+        let existingCarrier = this.system.carriers.find(c =>
+            c.centerShaft === selectedShaft || c.attachedShafts.includes(selectedShaft)
+        );
+
+        if (existingCarrier) {
+            // El Carrier ya sabe cuál es el centro (sol) y cuál el que orbita (planeta).
+            sunShaft = existingCarrier.centerShaft;
+            planetShaft = (existingCarrier.centerShaft === selectedShaft) ? otherShaft : selectedShaft;
+        } else {
+            let selectedGear = selectedShaft.components.find(c => c instanceof Gear);
+            let otherGear = otherShaft.components.find(c => c instanceof Gear);
+            if (!selectedGear || !otherGear) {
+                console.warn("⚠️ Sol o planeta sin engranaje.");
+                return null;
+            }
+            // Convención: el sol es el de más dientes (o igual, por defecto el seleccionado).
+            if (selectedGear.teeth >= otherGear.teeth) {
+                sunShaft = selectedShaft;
+                planetShaft = otherShaft;
+            } else {
+                sunShaft = otherShaft;
+                planetShaft = selectedShaft;
+            }
+        }
+
+        let sunGear = sunShaft.components.find(c => c instanceof Gear);
+        let planetGear = planetShaft.components.find(c => c instanceof Gear);
+        if (!sunGear || !planetGear) {
+            console.warn("⚠️ Sol o planeta sin engranaje.");
+            return null;
+        }
+
+        // ¿Ya hay una corona conectada a ESTE planeta? Reutilízala.
+        let annulus = this.findAnnulusFor(planetShaft);
+        if (!annulus) {
+            let coronaTeeth = sunGear.teeth + (2 * planetGear.teeth);
+            annulus = this.createAnnulus(coronaTeeth, sunGear.module, "Corona");
+            this.createInternalMesh(planetGear, annulus); // el paso que faltaba
+        }
+
+        // Siempre re-centrar en el sol real, exista la corona o se acabe de crear.
+        annulus.shaft.x = sunShaft.x;
+        annulus.shaft.y = sunShaft.y;
+
+        return annulus;
+    }
+
     createPulley(name, radius, plane = 0) {
         if (!name) {
             this.system.pulleyCounter++;

@@ -112,11 +112,17 @@ class TopologyManager {
         // 2. Validar mallas
         this.validateAllMeshes();
         // 3. Actualizar escapes
+        // ✅ CORREGIDO: "esc" se referenciaba antes de declararse (ReferenceError
+        // en cualquier llamada a afterGeometryChange() con al menos un escape en
+        // el sistema). El chequeo esc.rebuildConnectedTrain ahora va DENTRO del
+        // for, sobre cada esc ya declarado.
         if (this.system.escapements.length > 0) {
             for (let esc of this.system.escapements) {
-                esc.rebuildConnectedTrain();
-                for (let shaft of esc.connectedShafts) {
-                    shaft.lockedByEscapement = true;
+                if (esc && esc.rebuildConnectedTrain) {
+                    esc.rebuildConnectedTrain();
+                    for (let shaft of esc.connectedShafts) {
+                        shaft.lockedByEscapement = true;
+                    }
                 }
             }
         }
@@ -130,7 +136,17 @@ class TopologyManager {
         let dy = mesh.driver.y - mesh.driven.y;
         let distance = Math.hypot(dx, dy);
         let minDistance = mesh.driver.rootRadius + mesh.driven.rootRadius;
-        if(distance < minDistance){ mesh.isValid = false; return false; }
+        if(distance < minDistance){ mesh.isValid = false; return false; }  // interpenetración
+
+        // ✅ Límite SUPERIOR: antes solo se detectaba "demasiado cerca", nunca
+        // "demasiado lejos" — cualquier distancia mayor al mínimo de interpenetración
+        // quedaba válida para siempre, aunque los dientes ya no se tocaran. Por eso
+        // un tren seguía girando entero al alejar un eje intermedio arrastrándolo,
+        // en vez de desconectarse.
+        let idealDistance = mesh.driver.pitchRadius + mesh.driven.pitchRadius; // engrane correcto
+        let tolerance = Math.min(mesh.driver.module, mesh.driven.module) * 0.15;
+        if(Math.abs(distance - idealDistance) > tolerance){ mesh.isValid = false; return false; }
+
         return true;
     }
 
